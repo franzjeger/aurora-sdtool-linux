@@ -95,6 +95,12 @@ step "installing launcher -> $PREFIX/bin/$APP"
 sed "s/@VERSION@/$VERSION/g" "$REPO_ROOT/src/$APP" >"$BINDIR/$APP"
 chmod 755 "$BINDIR/$APP"
 
+# The compatibility tool shim lives beside the payload rather than in bin/:
+# it is never run from PATH, only copied into Steam's tool directory by
+# `aurora-sdtool --wrap-compat-tool`.
+step "installing compatibility tool shim -> $PREFIX/lib/$APP"
+install -m 755 "$REPO_ROOT/src/aurora-compat-launch" "$LIBDIR/aurora-compat-launch"
+
 step "installing desktop entry, icon and metadata"
 install -m 644 "$REPO_ROOT/share/applications/$APP.desktop" \
 	"$DATADIR/applications/$APP.desktop"

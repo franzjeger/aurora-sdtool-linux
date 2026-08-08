@@ -82,6 +82,7 @@ appstreamcli validate --no-net \
 %{_bindir}/%{name}
 %dir %{_prefix}/lib/%{name}
 %{_prefix}/lib/%{name}/AuroraLauncher
+%{_prefix}/lib/%{name}/aurora-compat-launch
 %{_prefix}/lib/%{name}/libSkiaSharp.so
 %{_prefix}/lib/%{name}/libHarfBuzzSharp.so
 %{_prefix}/lib/%{name}/SHA256SUMS

@@ -314,6 +314,7 @@ test_install_uninstall() {
 		lib/aurora-sdtool/AuroraLauncher \
 		lib/aurora-sdtool/libSkiaSharp.so \
 		lib/aurora-sdtool/libHarfBuzzSharp.so \
+		lib/aurora-sdtool/aurora-compat-launch \
 		share/applications/aurora-sdtool.desktop \
 		share/icons/hicolor/256x256/apps/aurora-sdtool.png \
 		share/metainfo/io.github.franzjeger.AuroraSDTool.metainfo.xml \
@@ -387,6 +388,172 @@ test_install_hints() {
 }
 
 # ---------------------------------------------------------------------------
+# Steam compatibility tool
+# ---------------------------------------------------------------------------
+
+# A stand-in for the tool directory Aurora registers with Steam, matching the
+# layout and manifest format upstream produces.
+make_compat_tool() {
+	local tool=$SANDBOX/home/.local/share/Steam/compatibilitytools.d/AuroraLauncher
+	mkdir -p "$tool"
+
+	# Records its argv one per line, so pass-through can be asserted exactly,
+	# and exits 42 so the exit status can be traced through the shim.
+	cat >"$tool/AuroraLauncher" <<EOF
+#!/bin/sh
+: > "$SANDBOX/argv"
+for a in "\$@"; do printf '[%s]\n' "\$a" >> "$SANDBOX/argv"; done
+printf 'CWD=%s\n' "\$(pwd)" >> "$SANDBOX/argv"
+printf 'LDLP=%s\n' "\$LD_LIBRARY_PATH" >> "$SANDBOX/argv"
+exit 42
+EOF
+	chmod +x "$tool/AuroraLauncher"
+	: >"$tool/libSkiaSharp.so"
+	: >"$tool/libHarfBuzzSharp.so"
+
+	cat >"$tool/toolmanifest.vdf" <<'EOF'
+"manifest"
+{
+  "version" "2"
+  "commandline" "/AuroraLauncher %verb%"
+}
+EOF
+	printf '%s\n' "$tool"
+}
+
+test_compat_shim() {
+	test_case "compatibility tool shim" || return 0
+	setup
+
+	local tool status=0
+	tool=$(make_compat_tool)
+	install -m 755 "$REPO_ROOT/src/aurora-compat-launch" "$tool/aurora-compat-launch"
+
+	# Exactly how Steam invokes it, including an argument containing a space.
+	( cd / && sandbox_env "$tool/aurora-compat-launch" \
+		waitforexitandrun "/games/My Game/game.exe" -novid ) || status=$?
+
+	assert_eq "$status" 42 "the launcher's exit status is propagated"
+
+	local argv
+	argv=$(<"$SANDBOX/argv")
+	assert_contains "$argv" "[waitforexitandrun]" "the Steam verb is passed through"
+	assert_contains "$argv" "[/games/My Game/game.exe]" \
+		"an argument containing a space stays one argument"
+	assert_contains "$argv" "[-novid]" "trailing game arguments are passed through"
+	assert_contains "$argv" "CWD=/" "the working directory Steam set is not changed"
+	assert_contains "$argv" "LDLP=$tool" "LD_LIBRARY_PATH points at the tool directory"
+
+	local log=$SANDBOX/home/.local/state/aurora-sdtool/compat-tool.log
+	if [[ -f $log ]]; then
+		ok "the shim writes a compat-tool log"
+		assert_contains "$(<"$log")" "exec AuroraLauncher" "the log records the hand-off"
+	else
+		no "the shim writes a compat-tool log"
+	fi
+
+	# With no launcher to hand off to, it must fail loudly rather than silently.
+	rm -f "$tool/AuroraLauncher"
+	status=0
+	OUTPUT=$(sandbox_env "$tool/aurora-compat-launch" waitforexitandrun 2>&1) || status=$?
+	assert_eq "$status" 127 "a missing launcher exits 127"
+	assert_contains "$OUTPUT" "missing or not executable" "and says why"
+
+	teardown
+}
+
+test_compat_wrap() {
+	test_case "compatibility tool wrapping" || return 0
+	setup
+	WRAPPER_ENV=(AURORA_SDTOOL_LIBDIR="$SANDBOX/payload")
+
+	local tool
+	tool=$(make_compat_tool)
+	cp "$REPO_ROOT/src/aurora-compat-launch" "$SANDBOX/payload/aurora-compat-launch"
+	cp "$tool/toolmanifest.vdf" "$SANDBOX/manifest.orig"
+
+	run_wrapper --wrap-compat-tool
+	assert_contains "$(<"$tool/toolmanifest.vdf")" '"/aurora-compat-launch %verb%"' \
+		"wrapping repoints the manifest at the shim"
+	if [[ -x $tool/aurora-compat-launch ]]; then
+		ok "wrapping installs the shim executable"
+	else
+		no "wrapping installs the shim executable"
+	fi
+	if [[ -f $tool/toolmanifest.vdf.aurora-sdtool.bak ]]; then
+		ok "wrapping backs up the original manifest"
+	else
+		no "wrapping backs up the original manifest"
+	fi
+	assert_contains "$(<"$tool/aurora-sdtool-wrap.conf")" "TARGET=AuroraLauncher" \
+		"wrapping records the original target"
+
+	run_wrapper --doctor || true
+	assert_contains "$OUTPUT" "compatibility tool is wrapped" "--doctor reports the wrap"
+
+	# Wrapping twice must not stack shims or lose the original command line.
+	run_wrapper --wrap-compat-tool
+	assert_contains "$OUTPUT" "already wrapped" "wrapping twice is a no-op"
+	assert_contains "$(<"$tool/aurora-sdtool-wrap.conf")" "'/AuroraLauncher %verb%'" \
+		"the recorded original survives a second wrap"
+
+	# An Aurora self-update rewrites the manifest and orphans the shim.
+	cp "$SANDBOX/manifest.orig" "$tool/toolmanifest.vdf"
+	run_wrapper --doctor || true
+	assert_contains "$OUTPUT" "wrap was undone" "--doctor detects a wrap lost to an update"
+
+	run_wrapper --wrap-compat-tool
+	run_wrapper --unwrap-compat-tool
+	if diff -q "$SANDBOX/manifest.orig" "$tool/toolmanifest.vdf" >/dev/null; then
+		ok "unwrapping restores the manifest byte for byte"
+	else
+		no "unwrapping restores the manifest byte for byte"
+	fi
+	if [[ -e $tool/aurora-compat-launch || -e $tool/aurora-sdtool-wrap.conf ]]; then
+		no "unwrapping leaves nothing behind"
+	else
+		ok "unwrapping leaves nothing behind"
+	fi
+
+	# A manifest in an unfamiliar format must be refused, not mangled.
+	printf '"manifest"\n{\n  "version" "2"\n}\n' >"$tool/toolmanifest.vdf"
+	cp "$tool/toolmanifest.vdf" "$SANDBOX/manifest.weird"
+	local status=0
+	run_wrapper --wrap-compat-tool || status=$?
+	assert_eq "$status" 1 "an unrecognised manifest is refused"
+	if diff -q "$SANDBOX/manifest.weird" "$tool/toolmanifest.vdf" >/dev/null; then
+		ok "a refused manifest is left untouched"
+	else
+		no "a refused manifest is left untouched"
+	fi
+
+	teardown
+}
+
+test_required_libs_in_sync() {
+	test_case "library lists stay in sync" || return 0
+	setup
+
+	# The shim carries its own copy because it runs from Steam's directory,
+	# where nothing else from this project exists. Drift would mean the two
+	# entry points disagree about what Aurora needs.
+	local from_launcher from_shim
+	from_launcher=$(sed -n '/^readonly REQUIRED_LIBS=(/,/^)/p' "$REPO_ROOT/src/aurora-sdtool" |
+		grep -oE 'lib[A-Za-z0-9_.+-]*\.so[0-9.]*' | sort)
+	from_shim=$(sed -n '/^REQUIRED_LIBS=(/,/^)/p' "$REPO_ROOT/src/aurora-compat-launch" |
+		grep -oE 'lib[A-Za-z0-9_.+-]*\.so[0-9.]*' | sort)
+
+	if [[ -n $from_launcher && $from_launcher == "$from_shim" ]]; then
+		ok "aurora-sdtool and aurora-compat-launch require the same libraries"
+	else
+		no "aurora-sdtool and aurora-compat-launch require the same libraries" \
+			"differences: $(comm -3 <(printf '%s' "$from_launcher") <(printf '%s' "$from_shim") | tr -d '\t' | tr '\n' ' ')"
+	fi
+
+	teardown
+}
+
+# ---------------------------------------------------------------------------
 
 main() {
 	printf '%saurora-sdtool test suite%s\n' "$C_BOLD" "$C_OFF"
@@ -404,6 +571,9 @@ main() {
 	test_doctor
 	test_steam_detection
 	test_install_hints
+	test_compat_shim
+	test_compat_wrap
+	test_required_libs_in_sync
 	test_install_uninstall
 
 	printf '\n'

@@ -23,11 +23,12 @@ jobs:
             shellcheck desktop-file-utils appstream
 
       - name: shellcheck
-        run: shellcheck -x src/aurora-sdtool scripts/*.sh scripts/lib/*.sh tests/*.sh packaging/*/*.sh packaging/appimage/AppRun
+        run: shellcheck -x src/aurora-sdtool src/aurora-compat-launch scripts/*.sh scripts/lib/*.sh tests/*.sh packaging/*/*.sh packaging/appimage/AppRun
 
       - name: Parse every script
         run: |
-          for f in src/aurora-sdtool scripts/*.sh scripts/lib/*.sh tests/*.sh \
+          for f in src/aurora-sdtool src/aurora-compat-launch \
+                   scripts/*.sh scripts/lib/*.sh tests/*.sh \
                    packaging/*/*.sh packaging/appimage/AppRun; do
             bash -n "$f"
           done

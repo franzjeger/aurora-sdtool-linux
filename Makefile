@@ -16,7 +16,7 @@ STAGING := $(DISTDIR)/staging
 SHELL := /bin/bash
 
 # Every shell source that lint covers. Keep in step with .github/workflows/ci.yml.
-SHELL_SOURCES := src/$(APP) \
+SHELL_SOURCES := src/$(APP) src/aurora-compat-launch \
                  scripts/install.sh scripts/uninstall.sh scripts/vendor-upstream.sh \
                  scripts/lib/common.sh \
                  tests/run-tests.sh \

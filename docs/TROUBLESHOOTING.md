@@ -11,12 +11,18 @@ required libraries, ICU, the display server, every Steam location it knows
 about, and desktop integration — and prints a fix for each problem it finds.
 Most of what follows is the long form of one of its lines.
 
-Two logs exist and they answer different questions:
+Three logs exist and they answer different questions:
 
 | Log | Written by | Covers |
 | --- | --- | --- |
-| `~/.local/state/aurora-sdtool/aurora-sdtool.log` | this wrapper | launching: paths, missing libraries, runtime sync |
+| `~/.local/state/aurora-sdtool/aurora-sdtool.log` | this wrapper | starting the desktop app: paths, missing libraries, runtime sync |
+| `~/.local/state/aurora-sdtool/compat-tool.log` | the compat shim | launching a game through Steam — only after `--wrap-compat-tool` |
 | Aurora's own log, via its **Tools** tab | upstream | the application: login, Proton, game hooking |
+
+The second exists because Steam runs Aurora's compatibility tool directly and
+never touches `aurora-sdtool`. Without the wrap, that path produces no
+diagnostics of its own — see
+[Nothing is logged when I launch a game](#nothing-is-logged-when-i-launch-a-game).
 
 ---
 
@@ -190,6 +196,27 @@ ls ~/.steam/steam/compatibilitytools.d/
 A Flatpak Steam reads `~/.var/app/com.valvesoftware.Steam/data/Steam` and
 ignores `~/.steam` entirely. Point Aurora's installer at the Flatpak path if
 that is the Steam you use.
+
+### Nothing is logged when I launch a game
+
+`aurora-sdtool` is the desktop application. Steam launches a game by running
+Aurora's own copy under `compatibilitytools.d` directly, so nothing this
+project does is in that path by default.
+
+```bash
+aurora-sdtool --wrap-compat-tool   # then restart Steam
+```
+
+Afterwards each launch is recorded in
+`~/.local/state/aurora-sdtool/compat-tool.log`, and that path also gets the ICU
+fallback and library search path the desktop launcher has.
+
+If the log stops appearing later, Aurora updated itself and rewrote the tool
+directory. `aurora-sdtool --doctor` reports that; re-run `--wrap-compat-tool`.
+
+The shim cannot prevent a game from starting — every problem it finds is
+logged, never enforced, and it always hands off with your arguments unchanged.
+To remove it entirely, `--unwrap-compat-tool` restores the original manifest.
 
 ### The game starts but Aurora does not
 

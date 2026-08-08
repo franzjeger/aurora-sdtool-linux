@@ -127,9 +127,39 @@ aurora-sdtool --where     print payload, runtime, config and state paths
 aurora-sdtool --log       print the path of the wrapper log
 aurora-sdtool --version   print version information
 aurora-sdtool --help      full option list
+
+aurora-sdtool --wrap-compat-tool     cover the game-launch path too
+aurora-sdtool --unwrap-compat-tool   undo that
 ```
 
 Anything else is passed through to the upstream launcher unchanged.
+
+### Covering the game-launch path
+
+`aurora-sdtool` is the desktop application. It is **not** what runs when you
+launch a game — Steam executes Aurora's own copy of itself under
+`compatibilitytools.d` directly, so none of the environment fixes above apply
+there. A missing library on that path produces a .NET stack trace somewhere in
+Steam's logs and nothing else.
+
+Once Aurora has registered itself with Steam:
+
+```bash
+aurora-sdtool --wrap-compat-tool
+```
+
+That puts a small shim in front of Aurora's launcher and repoints the tool
+manifest at it. The shim applies the ICU fallback and library search path, and
+records every game launch in `~/.local/state/aurora-sdtool/compat-tool.log`.
+Restart Steam afterwards so it re-reads the manifest.
+
+The shim is deliberately incapable of stopping a game from launching: problems
+are logged, never enforced, and every path ends in the same hand-off with your
+arguments untouched. `--unwrap-compat-tool` restores the original manifest from
+the backup it keeps.
+
+Aurora rewrites that directory when it updates itself, which quietly undoes the
+wrap. `--doctor` notices and tells you to run it again.
 
 ## Layout
 

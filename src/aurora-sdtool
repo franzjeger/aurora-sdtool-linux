@@ -42,6 +42,7 @@ fi
 
 log()  { printf '%s\n' "$*" >&2; }
 info() { printf '%s==>%s %s\n' "$C_GREEN$C_BOLD" "$C_OFF" "$*" >&2; }
+step() { printf '  %s->%s %s\n' "$C_DIM" "$C_OFF" "$*" >&2; }
 warn() { printf '%swarning:%s %s\n' "$C_YELLOW$C_BOLD" "$C_OFF" "$*" >&2; }
 err()  { printf '%serror:%s %s\n' "$C_RED$C_BOLD" "$C_OFF" "$*" >&2; }
 die()  { err "$*"; exit 1; }
@@ -332,6 +333,174 @@ compat_tool_dirs() {
 }
 
 # ---------------------------------------------------------------------------
+# The Steam compatibility tool
+#
+# Aurora installs a self-contained copy of itself into compatibilitytools.d and
+# Steam launches a game by running that copy directly — this launcher is never
+# involved. Wrapping it puts aurora-compat-launch in front, so the game path
+# gets the same environment fixes and leaves a readable log behind.
+#
+# Aurora rewrites that directory when it updates itself, which silently undoes
+# the wrap. --doctor checks for that; re-running --wrap-compat-tool restores it.
+# ---------------------------------------------------------------------------
+
+readonly SHIM=aurora-compat-launch
+readonly WRAP_CONF=aurora-sdtool-wrap.conf
+readonly MANIFEST=toolmanifest.vdf
+
+# The installed Aurora compatibility tool, or nothing.
+find_compat_tool() {
+	local dir entry
+	while read -r dir; do
+		for entry in "$dir"/*/; do
+			[[ -f $entry$MANIFEST && -f ${entry}AuroraLauncher ]] || continue
+			printf '%s\n' "${entry%/}"
+			return 0
+		done
+	done < <(compat_tool_dirs)
+	return 1
+}
+
+# The value of the manifest's commandline key, e.g. "/AuroraLauncher %verb%".
+manifest_commandline() {
+	sed -n 's/.*"commandline"[[:space:]]*"\([^"]*\)".*/\1/p' "$1/$MANIFEST" 2>/dev/null | head -1
+}
+
+compat_tool_is_wrapped() {
+	[[ -f $1/$SHIM ]] && [[ $(manifest_commandline "$1") == */$SHIM* ]]
+}
+
+wrap_compat_tool() {
+	local tool payload current target new_cmdline
+
+	tool=$(find_compat_tool) || die \
+"No Aurora compatibility tool is installed.
+
+  Aurora registers it with Steam when you first run '$PROG' and let it
+  install. Do that first, then run this again."
+
+	payload=$(find_payload_dir "$(resolve_self)") ||
+		die "Cannot find the payload, so cannot find $SHIM to install."
+
+	[[ -f $payload/$SHIM ]] || die \
+"$payload/$SHIM is missing.
+
+  Reinstall this package — the shim ships alongside the payload."
+
+	info "Compatibility tool: $tool"
+
+	if compat_tool_is_wrapped "$tool"; then
+		step "already wrapped — refreshing the shim"
+		install -m 755 "$payload/$SHIM" "$tool/$SHIM" || die "Cannot write $tool/$SHIM."
+		log ""
+		info "Up to date."
+		return 0
+	fi
+
+	current=$(manifest_commandline "$tool")
+	[[ -n $current ]] || die \
+"Could not read a \"commandline\" entry from $tool/$MANIFEST.
+
+  Refusing to edit a manifest in a format this does not recognise. Please
+  report this, and include the file."
+
+	# "/AuroraLauncher %verb%" -> target "AuroraLauncher", so any extra
+	# arguments upstream passes are carried over untouched.
+	target=${current#/}
+	target=${target%% *}
+	[[ -n $target && -f $tool/$target ]] || die \
+"$MANIFEST points at '$target', which is not a file in the tool directory.
+
+  Refusing to wrap something that does not look like the Aurora launcher."
+
+	new_cmdline="/$SHIM${current#/"$target"}"
+
+	step "backing up $MANIFEST"
+	cp -f "$tool/$MANIFEST" "$tool/$MANIFEST.aurora-sdtool.bak" ||
+		die "Cannot back up $tool/$MANIFEST."
+
+	step "installing $SHIM"
+	install -m 755 "$payload/$SHIM" "$tool/$SHIM" || die "Cannot write $tool/$SHIM."
+
+	step "recording the original command line"
+	cat >"$tool/$WRAP_CONF" <<EOF || die "Cannot write $tool/$WRAP_CONF."
+# Written by $PROG --wrap-compat-tool. Do not edit.
+# Delete this directory's $SHIM and restore $MANIFEST.aurora-sdtool.bak
+# to undo by hand, or run: $PROG --unwrap-compat-tool
+TARGET=$target
+ORIGINAL_COMMANDLINE='$current'
+WRAPPED_BY_VERSION=$WRAPPER_VERSION
+EOF
+
+	step "pointing $MANIFEST at $SHIM"
+	sed -i "s|\"commandline\"[[:space:]]*\"[^\"]*\"|\"commandline\" \"$new_cmdline\"|" \
+		"$tool/$MANIFEST" || die "Cannot rewrite $tool/$MANIFEST."
+
+	compat_tool_is_wrapped "$tool" || {
+		# Put it back rather than leave Steam pointing at something broken.
+		mv -f "$tool/$MANIFEST.aurora-sdtool.bak" "$tool/$MANIFEST" 2>/dev/null
+		rm -f "$tool/$SHIM" "$tool/$WRAP_CONF" 2>/dev/null
+		die "Rewriting $MANIFEST did not take effect. Rolled back, nothing changed."
+	}
+
+	audit "wrapped compatibility tool at $tool ($current -> $new_cmdline)"
+
+	log ""
+	info "Wrapped."
+	log ""
+	log "  $current  ->  $new_cmdline"
+	log ""
+	log "  Restart Steam for it to re-read the tool manifest."
+	log "  Game launches now log to $STATE_DIR/compat-tool.log"
+	log ""
+	log "  Aurora undoes this when it updates itself. '$PROG --doctor'"
+	log "  reports when that has happened."
+	log ""
+}
+
+unwrap_compat_tool() {
+	local tool
+
+	tool=$(find_compat_tool) || die "No Aurora compatibility tool is installed."
+
+	info "Compatibility tool: $tool"
+
+	if [[ ! -f $tool/$SHIM ]] && ! compat_tool_is_wrapped "$tool"; then
+		warn "Not wrapped — nothing to undo."
+		return 0
+	fi
+
+	if [[ -f $tool/$MANIFEST.aurora-sdtool.bak ]]; then
+		step "restoring $MANIFEST from the backup"
+		mv -f "$tool/$MANIFEST.aurora-sdtool.bak" "$tool/$MANIFEST" ||
+			die "Cannot restore $tool/$MANIFEST."
+	else
+		# No backup, so rebuild the entry from what the sidecar recorded.
+		local original=
+		# shellcheck source=/dev/null
+		[[ -r $tool/$WRAP_CONF ]] && source "$tool/$WRAP_CONF"
+		original=${ORIGINAL_COMMANDLINE:-}
+		[[ -n $original ]] || die \
+"No backup and no recorded command line — cannot undo safely.
+
+  Edit $tool/$MANIFEST by hand: point \"commandline\" back at the launcher,
+  usually \"/AuroraLauncher %verb%\", then delete $tool/$SHIM."
+		step "restoring the command line from $WRAP_CONF"
+		sed -i "s|\"commandline\"[[:space:]]*\"[^\"]*\"|\"commandline\" \"$original\"|" \
+			"$tool/$MANIFEST" || die "Cannot rewrite $tool/$MANIFEST."
+	fi
+
+	step "removing $SHIM"
+	rm -f "$tool/$SHIM" "$tool/$WRAP_CONF"
+
+	audit "unwrapped compatibility tool at $tool"
+
+	log ""
+	info "Unwrapped. Restart Steam for it to re-read the tool manifest."
+	log ""
+}
+
+# ---------------------------------------------------------------------------
 # Subcommands
 # ---------------------------------------------------------------------------
 
@@ -358,6 +527,15 @@ ${C_BOLD}Options:${C_OFF}
   --log           Print the path of the wrapper log and exit
   --version       Print version information and exit
   --help          Show this message and exit
+
+${C_BOLD}Steam compatibility tool:${C_OFF}
+  --wrap-compat-tool     Put this project's shim in front of the tool Steam
+                         runs when launching a game, so the game path gets
+                         the same environment fixes and its own log
+  --unwrap-compat-tool   Undo that, restoring the original manifest
+
+  Aurora rewrites the tool directory when it updates itself, which undoes the
+  wrap. --doctor reports when that has happened.
 
 Any other argument is passed through to the upstream launcher unchanged.
 
@@ -480,6 +658,25 @@ run_doctor() {
 			warn_mark "no compatibilitytools.d directory yet"
 			note "Aurora creates it during installation. Nothing to do."
 		fi
+
+		# Steam runs the tool directly, so whether the shim is in front of it
+		# is a separate question from whether this launcher works.
+		local tool
+		if tool=$(find_compat_tool); then
+			if compat_tool_is_wrapped "$tool"; then
+				ok_mark "compatibility tool is wrapped — game launches are logged"
+				note "Log: $STATE_DIR/compat-tool.log"
+			elif [[ -f $tool/$SHIM || -f $tool/$WRAP_CONF ]]; then
+				warn_mark "compatibility tool wrap was undone, probably by an Aurora update"
+				note "Restore it with: $PROG --wrap-compat-tool"
+			else
+				warn_mark "compatibility tool is not wrapped"
+				note "Steam runs it directly, so game launches get no diagnostics."
+				note "Wrap it with: $PROG --wrap-compat-tool"
+			fi
+		else
+			note "Aurora has not registered a compatibility tool yet."
+		fi
 	else
 		warn_mark "no Steam installation found"
 		note "Aurora installs and runs, but cannot hook games until Steam is set up."
@@ -528,6 +725,8 @@ run_doctor() {
 main() {
 	case ${1:-} in
 		--doctor)  run_doctor; exit $? ;;
+		--wrap-compat-tool)   wrap_compat_tool; exit $? ;;
+		--unwrap-compat-tool) unwrap_compat_tool; exit $? ;;
 		--version) show_version; exit 0 ;;
 		--help|-h) show_help; exit 0 ;;
 		--where)   show_where; exit 0 ;;

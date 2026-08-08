@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+#
+# aurora-compat-launch — Steam Play compatibility tool shim.
+#
+# Steam runs the "Aurora Launch" tool directly out of its own directory under
+# compatibilitytools.d; the desktop launcher is never involved. This shim sits
+# in front of it so the game-launch path gets the same environment fixes, and
+# so a failure leaves a readable line in a known log instead of a .NET stack
+# trace buried in Steam's output.
+#
+# Installed by: aurora-sdtool --wrap-compat-tool
+# Removed by:   aurora-sdtool --unwrap-compat-tool
+#
+# DESIGN RULE: this script must never prevent a game from launching. There is
+# no `set -e`, every diagnostic is best-effort, and every path ends in the same
+# exec. A bug here should cost a log line, not the game.
+#
+# It is deliberately standalone — it lives in Steam's directory, where nothing
+# else from this project is present. REQUIRED_LIBS is kept in step with
+# src/aurora-sdtool by a test.
+
+set -u
+
+SELF_DIR=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd) || SELF_DIR=.
+
+# Overridable by the sidecar written at wrap time, so the shim still points at
+# the right binary if upstream ever renames it.
+TARGET=AuroraLauncher
+
+# shellcheck source=/dev/null
+[[ -r $SELF_DIR/aurora-sdtool-wrap.conf ]] && source "$SELF_DIR/aurora-sdtool-wrap.conf" 2>/dev/null
+
+XDG_STATE_HOME=${XDG_STATE_HOME:-${HOME:-/tmp}/.local/state}
+LOG_DIR=$XDG_STATE_HOME/aurora-sdtool
+LOG_FILE=$LOG_DIR/compat-tool.log
+
+log() {
+	mkdir -p "$LOG_DIR" 2>/dev/null || return 0
+	printf '%s [compat] %s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" "$*" \
+		>>"$LOG_FILE" 2>/dev/null || true
+}
+
+# Keep the log from growing without bound across hundreds of game launches.
+rotate_log() {
+	local size
+	size=$(stat -c %s "$LOG_FILE" 2>/dev/null) || return 0
+	(( size > 1048576 )) && mv -f "$LOG_FILE" "$LOG_FILE.1" 2>/dev/null
+	return 0
+}
+
+# ---------------------------------------------------------------------------
+# Library and ICU detection — same checks as the desktop launcher, but here
+# they only ever produce log lines.
+# ---------------------------------------------------------------------------
+
+REQUIRED_LIBS=(
+	libfontconfig.so.1
+	libfreetype.so.6
+	libexpat.so.1
+	libz.so.1
+	libbz2.so.1.0
+	libpng16.so.16
+	libbrotlidec.so.1
+	libbrotlicommon.so.1
+	libX11.so.6
+	libxcb.so.1
+	libXau.so.6
+	libXdmcp.so.6
+	libstdc++.so.6
+	libgcc_s.so.1
+)
+
+LIB_SEARCH_DIRS=(
+	/usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu /lib /lib64
+	/usr/local/lib /usr/local/lib64
+)
+
+LDCONFIG_CACHE=
+load_ldconfig_cache() {
+	[[ -n $LDCONFIG_CACHE ]] && return 0
+	local ldconfig
+	for ldconfig in ldconfig /sbin/ldconfig /usr/sbin/ldconfig; do
+		if command -v "$ldconfig" >/dev/null 2>&1; then
+			LDCONFIG_CACHE=$("$ldconfig" -p 2>/dev/null)
+			[[ -n $LDCONFIG_CACHE ]] && return 0
+		fi
+	done
+	LDCONFIG_CACHE=unavailable
+	return 0
+}
+
+have_lib() {
+	local soname=$1 dir
+	load_ldconfig_cache
+	if [[ $LDCONFIG_CACHE != unavailable ]]; then
+		grep -qF -- "$soname " <<<"$LDCONFIG_CACHE" && return 0
+	fi
+	for dir in "${LIB_SEARCH_DIRS[@]}"; do
+		[[ -e $dir/$soname ]] && return 0
+	done
+	return 1
+}
+
+have_icu() {
+	local dir
+	load_ldconfig_cache
+	if [[ $LDCONFIG_CACHE != unavailable ]]; then
+		grep -q 'libicuuc\.so\.' <<<"$LDCONFIG_CACHE" && return 0
+	fi
+	for dir in "${LIB_SEARCH_DIRS[@]}"; do
+		compgen -G "$dir/libicuuc.so.*" >/dev/null 2>&1 && return 0
+	done
+	return 1
+}
+
+# ---------------------------------------------------------------------------
+
+rotate_log
+log "invoked with: $*"
+
+# The one fix that actually prevents a crash rather than just explaining one:
+# .NET aborts at startup when it can find no ICU at all.
+if ! have_icu && [[ -z ${DOTNET_SYSTEM_GLOBALIZATION_INVARIANT:-} ]]; then
+	export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+	log "no ICU library found — enabled invariant globalization"
+fi
+
+# Logged, never enforced. A missing library means the launcher is about to die
+# on its own; this is what makes the reason findable afterwards.
+missing=
+for lib in "${REQUIRED_LIBS[@]}"; do
+	have_lib "$lib" || missing="$missing $lib"
+done
+if [[ -n $missing ]]; then
+	log "WARNING: missing shared libraries —$missing"
+	log "WARNING: Aurora will probably fail to start. Run 'aurora-sdtool --doctor'."
+fi
+
+# The launcher resolves libSkiaSharp and libHarfBuzzSharp next to its own
+# executable; setting the search path too covers unusual invocations.
+export LD_LIBRARY_PATH=$SELF_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+
+if [[ ! -x $SELF_DIR/$TARGET ]]; then
+	# Nothing left to hand off to. Say so loudly in both places, because at
+	# this point the game is not going to start whatever we do.
+	log "ERROR: $SELF_DIR/$TARGET is missing or not executable"
+	printf 'aurora-compat-launch: %s is missing or not executable\n' \
+		"$SELF_DIR/$TARGET" >&2
+	exit 127
+fi
+
+log "exec $TARGET"
+
+# No cd: Steam's working directory is passed through unchanged, so the launcher
+# sees exactly the environment it would have without this shim.
+exec "$SELF_DIR/$TARGET" "$@"

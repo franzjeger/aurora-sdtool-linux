@@ -113,6 +113,7 @@ find "$STAGE" -type d -exec chmod 755 {} +
 find "$STAGE" -type f -exec chmod 644 {} +
 chmod 755 "$STAGE/usr/bin/$APP" \
 	"$STAGE/usr/lib/$APP/AuroraLauncher" \
+	"$STAGE/usr/lib/$APP/aurora-compat-launch" \
 	"$STAGE/DEBIAN/postinst" "$STAGE/DEBIAN/postrm"
 
 step "building the package"
