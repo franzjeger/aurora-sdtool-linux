@@ -10,6 +10,7 @@
 
 set -euo pipefail
 
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/common.sh
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/common.sh"
 
@@ -65,6 +66,16 @@ UPSTREAM_VERSION=$(
 )
 UPSTREAM_VERSION=${UPSTREAM_VERSION:-unknown}
 
+# Built before the heredoc rather than inside it, so the backticks that make
+# the Markdown table can carry a shellcheck directive of their own.
+FILE_TABLE=$(
+	printf '| File | SHA-256 |\n| --- | --- |\n'
+	while read -r sum name; do
+		# shellcheck disable=SC2016  # backticks are Markdown, not substitution
+		printf '| `%s` | `%s` |\n' "$name" "$sum"
+	done <"$REPO_ROOT/vendor/SHA256SUMS"
+)
+
 step "writing vendor/UPSTREAM.md"
 cat >"$REPO_ROOT/vendor/UPSTREAM.md" <<EOF
 # Vendored upstream payload
@@ -83,8 +94,7 @@ repository and are **not** covered by its licence — see [LEGAL.md](../LEGAL.md
 
 ## Files
 
-$(cd "$REPO_ROOT/vendor" && while read -r sum name; do printf '| `%s` | `%s` |\n' "$name" "$sum"; done <SHA256SUMS |
-	sed '1i | File | SHA-256 |\n| --- | --- |')
+$FILE_TABLE
 
 ## Refreshing
 

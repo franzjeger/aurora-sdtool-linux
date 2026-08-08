@@ -13,16 +13,18 @@ readonly APP
 # Reverse-DNS component ID used by AppStream and Flatpak. It belongs to the
 # packager, not to CheatHappens — change it if you publish under another domain.
 APPID=io.github.franzjeger.AuroraSDTool
+# shellcheck disable=SC2034  # read by the scripts that source this file
 readonly APPID
 
 VERSION=$(<"$REPO_ROOT/VERSION")
+# shellcheck disable=SC2034  # read by the scripts that source this file
 readonly VERSION
 
 if [[ -t 2 ]]; then
 	C_RED=$'\033[31m' C_YELLOW=$'\033[33m' C_GREEN=$'\033[32m'
 	C_BOLD=$'\033[1m' C_DIM=$'\033[2m' C_OFF=$'\033[0m'
 else
-	C_RED= C_YELLOW= C_GREEN= C_BOLD= C_DIM= C_OFF=
+	C_RED='' C_YELLOW='' C_GREEN='' C_BOLD='' C_DIM='' C_OFF=''
 fi
 
 log()  { printf '%s\n' "$*" >&2; }

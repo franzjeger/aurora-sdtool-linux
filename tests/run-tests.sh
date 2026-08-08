@@ -19,7 +19,7 @@ readonly FILTER=${1:-}
 if [[ -t 1 ]]; then
 	C_RED=$'\033[31m' C_GREEN=$'\033[32m' C_DIM=$'\033[2m' C_BOLD=$'\033[1m' C_OFF=$'\033[0m'
 else
-	C_RED= C_GREEN= C_DIM= C_BOLD= C_OFF=
+	C_RED='' C_GREEN='' C_DIM='' C_BOLD='' C_OFF=''
 fi
 
 PASS=0 FAIL=0 SKIP=0
@@ -268,7 +268,7 @@ test_config_file() {
 	WRAPPER_ENV=()
 	run_wrapper --where
 	assert_contains "$OUTPUT" "payload:  $SANDBOX/payload" \
-		"~/.config/aurora-sdtool/env is sourced at startup"
+		"the config env file is sourced at startup"
 
 	teardown
 }

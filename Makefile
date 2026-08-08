@@ -15,6 +15,14 @@ STAGING := $(DISTDIR)/staging
 
 SHELL := /bin/bash
 
+# Every shell source that lint covers. Keep in step with .github/workflows/ci.yml.
+SHELL_SOURCES := src/$(APP) \
+                 scripts/install.sh scripts/uninstall.sh scripts/vendor-upstream.sh \
+                 scripts/lib/common.sh \
+                 tests/run-tests.sh \
+                 packaging/debian/build-deb.sh packaging/rpm/build-rpm.sh \
+                 packaging/appimage/build-appimage.sh packaging/appimage/AppRun
+
 .DEFAULT_GOAL := help
 
 # ---------------------------------------------------------------------------
@@ -62,10 +70,10 @@ lint: ## Lint shell scripts, the desktop entry and the AppStream metadata
 	@fail=0; \
 	if command -v shellcheck >/dev/null 2>&1; then \
 		echo "==> shellcheck"; \
-		shellcheck -x src/$(APP) scripts/*.sh scripts/lib/*.sh tests/*.sh || fail=1; \
+		shellcheck -x $(SHELL_SOURCES) || fail=1; \
 	else echo "-- shellcheck not installed, skipping"; fi; \
 	echo "==> bash -n"; \
-	for f in src/$(APP) scripts/*.sh scripts/lib/*.sh tests/*.sh; do bash -n "$$f" || fail=1; done; \
+	for f in $(SHELL_SOURCES); do bash -n "$$f" || fail=1; done; \
 	if command -v desktop-file-validate >/dev/null 2>&1; then \
 		echo "==> desktop-file-validate"; \
 		desktop-file-validate share/applications/$(APP).desktop || fail=1; \

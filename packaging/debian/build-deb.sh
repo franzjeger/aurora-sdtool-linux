@@ -8,6 +8,7 @@
 
 set -euo pipefail
 
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=../../scripts/lib/common.sh
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../scripts/lib/common.sh"
 
