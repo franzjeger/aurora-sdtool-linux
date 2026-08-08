@@ -93,9 +93,19 @@ scripts/install.sh
 
 Launch **Aurora SD Tool** from your application menu, or run `aurora-sdtool`.
 
-First run shows the installer screen: pick where Aurora should live and press
-**Install**. Then log in with your CheatHappens account. After that, hook a
-game through Steam:
+> [!WARNING]
+> **First launch installs Aurora immediately — it does not wait for you to
+> press Install.** On a system upstream does not recognise as a Steam Deck it
+> skips the confirmation, downloads Aurora (~170 MB) into `~/Downloads/Aurora`,
+> registers the `AuroraLauncher` compatibility tool with Steam, drops a
+> shortcut on your desktop, and then closes and restarts Steam. Verified on
+> 3.2.0. If that is not what you want, do not launch it — there is no
+> "just look at it" mode.
+>
+> Everything it creates is listed under [Undoing an install](#undoing-an-install).
+
+After it installs, log in with your CheatHappens account. Then hook a game
+through Steam:
 
 1. Right-click the game in your Steam library → **Properties**
 2. **Compatibility** → tick *Force the use of a specific Steam Play
@@ -141,8 +151,20 @@ Files the wrapper owns at runtime:
 | `~/.local/share/aurora-sdtool/app` | Per-user payload copy, when the prefix is read-only |
 | `~/.local/state/aurora-sdtool/aurora-sdtool.log` | Wrapper log |
 
-Aurora's own files live wherever you pointed the installer, plus the
-`AuroraLauncher` entry under Steam's `compatibilitytools.d`.
+### Undoing an install
+
+`scripts/uninstall.sh` removes this packaging. Aurora installs *itself*
+elsewhere, and nothing here tracks those files — remove them from Aurora's
+**Tools** tab, or by hand. On 3.2.0 a first launch creates exactly:
+
+```
+~/Downloads/Aurora/                                    # or wherever you pointed it
+~/.local/share/Steam/compatibilitytools.d/AuroraLauncher/
+~/Desktop/Aurora Launcher.desktop
+```
+
+Deleting those three puts the system back. Leave any *other* directory under
+`compatibilitytools.d` alone — that is where Proton builds live.
 
 ## Updating
 

@@ -95,6 +95,28 @@ aurora-sdtool 2>&1 | tee /tmp/aurora-crash.log
 
 ---
 
+## It installed Aurora without asking
+
+Expected, and not something this packaging does. On a system upstream does not
+recognise as a Steam Deck, first launch skips the confirmation and runs the
+whole install — this is the "bypass the install dialog" behaviour upstream
+added in 2.5.0. Verified on 3.2.0: the setup screen appears with every step
+already done, then Steam is closed and restarted.
+
+There is no flag to open the UI without installing. To undo it, close Aurora
+and delete the three things it created:
+
+```bash
+rm -rf ~/Downloads/Aurora
+rm -rf ~/.local/share/Steam/compatibilitytools.d/AuroraLauncher
+rm -f  ~/Desktop/"Aurora Launcher.desktop"
+```
+
+Substitute your own path for `~/Downloads/Aurora` if you changed it.
+
+**Delete nothing else under `compatibilitytools.d`** — Proton builds live
+there, and removing one breaks every game configured to use it.
+
 ## It starts but misbehaves
 
 ### Settings reset on every restart
