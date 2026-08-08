@@ -497,11 +497,17 @@ run_doctor() {
 	[[ -n ${payload:-} && $payload != '(not found)' ]] &&
 		desktop_dirs+=("$payload/../../share/applications")
 
+	# For a ~/.local install the payload-derived path and XDG_DATA_HOME are the
+	# same directory, so report canonical paths once each.
+	local canonical
+	local -A seen_desktop=()
 	for dir in "${desktop_dirs[@]}"; do
-		if [[ -f $dir/$PROG.desktop ]]; then
-			ok_mark "desktop entry in $(cd "$dir" && pwd)"
-			desktop_found=1
-		fi
+		[[ -f $dir/$PROG.desktop ]] || continue
+		canonical=$(cd "$dir" && pwd)
+		[[ -n ${seen_desktop[$canonical]:-} ]] && continue
+		seen_desktop[$canonical]=1
+		ok_mark "desktop entry in $canonical"
+		desktop_found=1
 	done
 	(( desktop_found )) || warn_mark "no desktop entry installed — launch from a terminal, or run scripts/install.sh"
 	printf '\n'
