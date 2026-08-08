@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+#
+# AppImage entry point.
+#
+# The AppImage mount is read-only, which is exactly the case the wrapper's
+# runtime-directory logic exists for: it mirrors the payload into
+# ~/.local/share/aurora-sdtool/app so Aurora keeps its settings between runs.
+
+set -euo pipefail
+
+APPDIR=${APPDIR:-$(cd -P "$(dirname "$(readlink -f "$0")")" && pwd)}
+export APPDIR
+
+export AURORA_SDTOOL_LIBDIR=$APPDIR/usr/lib/aurora-sdtool
+export XDG_DATA_DIRS=$APPDIR/usr/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}
+
+exec "$APPDIR/usr/bin/aurora-sdtool" "$@"

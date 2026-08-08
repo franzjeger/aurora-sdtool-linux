@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AppStream metadata for the Linux packaging of the Aurora Steam Deck Tool.
+
+  The component ID uses the packager's domain, not CheatHappens', because this
+  repository is a third-party packaging effort. Change it if you publish under
+  a different domain.
+-->
+<component type="desktop-application">
+  <id>io.github.franzjeger.AuroraSDTool</id>
+  <launchable type="desktop-id">aurora-sdtool.desktop</launchable>
+
+  <name>Aurora SD Tool</name>
+  <summary>Install and manage the Aurora game trainer for Steam Play titles</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+
+  <developer id="com.cheathappens">
+    <name>CheatHappens</name>
+  </developer>
+
+  <url type="homepage">https://www.cheathappens.com/</url>
+  <url type="help">https://www.cheathappens.com/</url>
+
+  <description>
+    <p>
+      Aurora SD Tool installs the Aurora game trainer on Linux and registers it
+      as a Steam Play compatibility tool, so a game launched from Steam starts
+      with Aurora attached to it.
+    </p>
+    <p>
+      It detects Proton builds across every Steam library folder, including
+      Flatpak and distro-packaged runners, lets you pick a Proton version per
+      game or globally, and manages non-Steam launchers such as Ubisoft Connect
+      and the Epic Games Store.
+    </p>
+    <p>
+      This package adds Linux desktop integration on top of the upstream Steam
+      Deck build: an XDG-compliant install layout, a launcher that works from a
+      read-only system prefix, dependency diagnostics, and support for
+      distributions beyond SteamOS.
+    </p>
+  </description>
+
+  <categories>
+    <category>Game</category>
+    <category>Utility</category>
+  </categories>
+
+  <keywords>
+    <keyword>Aurora</keyword>
+    <keyword>CheatHappens</keyword>
+    <keyword>trainer</keyword>
+    <keyword>Steam</keyword>
+    <keyword>Proton</keyword>
+    <keyword>Steam Deck</keyword>
+  </keywords>
+
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <recommends>
+    <control>keyboard</control>
+    <control>pointing</control>
+    <control>touch</control>
+  </recommends>
+
+  <supports>
+    <internet>always</internet>
+  </supports>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="3.2.0" date="2026-07-08">
+      <description>
+        <p>Upstream 3.2.0, with Linux packaging and desktop integration:</p>
+        <ul>
+          <li>Complete "Aurora Deck" UI redesign with Status, Games and Tools tabs</li>
+          <li>Runs correctly from a read-only system prefix such as /usr</li>
+          <li>Startup diagnostics for missing libraries, XWayland and Steam</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+</component>

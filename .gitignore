@@ -1,0 +1,25 @@
+# Build output
+/dist/
+
+# Arch packaging leftovers
+/packaging/arch/pkg/
+/packaging/arch/src/
+/packaging/arch/*.pkg.tar.*
+/packaging/arch/*.tar.gz
+/packaging/arch/aurora-sdtool/
+
+# Flatpak
+/packaging/flatpak/.flatpak-builder/
+/packaging/flatpak/build/
+/packaging/flatpak/repo/
+
+# AppImage
+/packaging/appimage/AppDir/
+*.AppImage
+
+# Editors and desktops
+*.swp
+*~
+.idea/
+.vscode/
+.DS_Store

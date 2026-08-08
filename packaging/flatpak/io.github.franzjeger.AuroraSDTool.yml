@@ -1,0 +1,68 @@
+# Flatpak manifest for Aurora SD Tool.
+#
+#   flatpak install -y flathub org.freedesktop.Platform//24.08 \
+#                              org.freedesktop.Sdk//24.08
+#   flatpak-builder --user --install --force-clean build \
+#       packaging/flatpak/io.github.franzjeger.AuroraSDTool.yml
+#
+# The application ID uses the packager's domain because this is third-party
+# packaging of proprietary software. It cannot go on Flathub: the payload is
+# not redistributable there and is not built from source. This manifest is for
+# local and private-remote installs.
+#
+# Read packaging/flatpak/README.md before using it — a sandboxed Aurora is
+# useful for the UI, but hooking games needs access to Steam's directories.
+
+app-id: io.github.franzjeger.AuroraSDTool
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: aurora-sdtool
+
+finish-args:
+  # Avalonia renders through X11 only, so no Wayland socket is requested.
+  - --socket=x11
+  - --share=ipc
+  - --device=dri
+
+  # Aurora authenticates against CheatHappens and downloads trainers.
+  - --share=network
+
+  # Steam data, so Proton builds and the compatibility tool directory are
+  # visible. Narrower than --filesystem=home, which upstream effectively needs.
+  - --filesystem=~/.steam
+  - --filesystem=~/.local/share/Steam
+  - --filesystem=~/.var/app/com.valvesoftware.Steam/data/Steam
+  - --filesystem=/usr/share/steam:ro
+
+  # Where Aurora itself gets installed, and where games usually live.
+  - --filesystem=~/Games:create
+  - --filesystem=~/Downloads
+
+  - --talk-name=org.freedesktop.Notifications
+
+modules:
+  - name: aurora-sdtool
+    buildsystem: simple
+    build-commands:
+      - bash ./scripts/install.sh --prefix /app --destdir /
+    sources:
+      - type: dir
+        path: ../..
+
+    # The payload is a prebuilt binary: nothing to strip, no debuginfo to split.
+    build-options:
+      strip: false
+      no-debuginfo: true
+
+  # Aurora's Avalonia UI falls back to boxes without a font on the host-less
+  # sandbox, so ship one.
+  - name: dejavu-fonts
+    buildsystem: simple
+    build-commands:
+      - install -Dm644 ttf/DejaVuSans.ttf /app/share/fonts/DejaVuSans.ttf
+      - install -Dm644 ttf/DejaVuSans-Bold.ttf /app/share/fonts/DejaVuSans-Bold.ttf
+    sources:
+      - type: archive
+        url: https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-fonts-ttf-2.37.tar.bz2
+        sha256: 7576310b219e04159d35ff61dd4a4ec4cdba4f35c00e002a136f00e96a908b0a

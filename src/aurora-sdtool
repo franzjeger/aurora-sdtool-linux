@@ -1,0 +1,600 @@
+#!/usr/bin/env bash
+#
+# aurora-sdtool — portable Linux launcher for the Aurora Steam Deck Tool.
+#
+# Upstream ships a NativeAOT Avalonia binary that assumes it lives in a
+# writable directory, that its two native libraries sit next to it, and that
+# an X11 display is always available. This wrapper makes those assumptions
+# hold on any Linux distribution, whether the payload was installed
+# system-wide (read-only /usr) or into the user's home directory.
+#
+# See docs/TROUBLESHOOTING.md for the reasoning behind each step.
+
+set -euo pipefail
+
+readonly PROG=aurora-sdtool
+readonly WRAPPER_VERSION=@VERSION@
+
+# ---------------------------------------------------------------------------
+# XDG base directories
+# ---------------------------------------------------------------------------
+
+XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
+XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
+XDG_STATE_HOME=${XDG_STATE_HOME:-$HOME/.local/state}
+
+readonly CONFIG_DIR=$XDG_CONFIG_HOME/$PROG
+readonly DATA_DIR=$XDG_DATA_HOME/$PROG
+readonly STATE_DIR=$XDG_STATE_HOME/$PROG
+readonly RUNTIME_APP_DIR=$DATA_DIR/app
+readonly LOG_FILE=$STATE_DIR/$PROG.log
+
+# ---------------------------------------------------------------------------
+# Output helpers — plain text on a pipe, colour on a terminal
+# ---------------------------------------------------------------------------
+
+if [[ -t 2 ]]; then
+	C_RED=$'\033[31m' C_YELLOW=$'\033[33m' C_GREEN=$'\033[32m'
+	C_BOLD=$'\033[1m' C_DIM=$'\033[2m' C_OFF=$'\033[0m'
+else
+	C_RED= C_YELLOW= C_GREEN= C_BOLD= C_DIM= C_OFF=
+fi
+
+log()  { printf '%s\n' "$*" >&2; }
+info() { printf '%s==>%s %s\n' "$C_GREEN$C_BOLD" "$C_OFF" "$*" >&2; }
+warn() { printf '%swarning:%s %s\n' "$C_YELLOW$C_BOLD" "$C_OFF" "$*" >&2; }
+err()  { printf '%serror:%s %s\n' "$C_RED$C_BOLD" "$C_OFF" "$*" >&2; }
+die()  { err "$*"; exit 1; }
+
+# Record wrapper activity so `--doctor` output and bug reports have context.
+audit() {
+	[[ -d $STATE_DIR ]] || mkdir -p "$STATE_DIR" 2>/dev/null || return 0
+	printf '%s [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$PROG" "$*" >>"$LOG_FILE" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# User overrides
+#
+# Anything exported here wins over the defaults below. Handy for pinning a
+# Steam root or forcing invariant globalization on an unusual distro.
+# ---------------------------------------------------------------------------
+
+# shellcheck source=/dev/null
+[[ -r $CONFIG_DIR/env ]] && source "$CONFIG_DIR/env"
+
+# ---------------------------------------------------------------------------
+# Locating the payload
+# ---------------------------------------------------------------------------
+
+# Resolve this script through any symlinks so a `ln -s` into ~/.local/bin
+# still finds the payload relative to the real install location.
+resolve_self() {
+	local src=${BASH_SOURCE[0]} dir
+	while [[ -L $src ]]; do
+		dir=$(cd -P "$(dirname "$src")" && pwd)
+		src=$(readlink "$src")
+		[[ $src != /* ]] && src=$dir/$src
+	done
+	cd -P "$(dirname "$src")" && pwd
+}
+
+# A directory qualifies as the payload if it holds the launcher and both
+# native libraries — a partial copy is worse than none, so we keep looking.
+is_payload_dir() {
+	[[ -f $1/AuroraLauncher && -f $1/libSkiaSharp.so && -f $1/libHarfBuzzSharp.so ]]
+}
+
+find_payload_dir() {
+	local self_dir=$1 candidate
+
+	if [[ -n ${AURORA_SDTOOL_LIBDIR:-} ]]; then
+		is_payload_dir "$AURORA_SDTOOL_LIBDIR" ||
+			die "AURORA_SDTOOL_LIBDIR=$AURORA_SDTOOL_LIBDIR does not contain the Aurora payload."
+		printf '%s\n' "$AURORA_SDTOOL_LIBDIR"
+		return 0
+	fi
+
+	for candidate in \
+		"$self_dir/../lib/$PROG" \
+		"$self_dir/../vendor" \
+		"$self_dir/vendor" \
+		"$RUNTIME_APP_DIR" \
+		"/usr/lib/$PROG" \
+		"/usr/lib64/$PROG" \
+		"/usr/local/lib/$PROG" \
+		"/opt/$PROG"
+	do
+		if is_payload_dir "$candidate"; then
+			(cd "$candidate" && pwd)
+			return 0
+		fi
+	done
+
+	return 1
+}
+
+# ---------------------------------------------------------------------------
+# Shared library preflight
+#
+# The upstream binary is NativeAOT, so a missing system library surfaces as an
+# unhandled .NET exception and a core dump. Checking first lets us print
+# something a user can act on.
+# ---------------------------------------------------------------------------
+
+readonly REQUIRED_LIBS=(
+	libfontconfig.so.1
+	libfreetype.so.6
+	libexpat.so.1
+	libz.so.1
+	libbz2.so.1.0
+	libpng16.so.16
+	libbrotlidec.so.1
+	libbrotlicommon.so.1
+	libX11.so.6
+	libxcb.so.1
+	libXau.so.6
+	libXdmcp.so.6
+	libstdc++.so.6
+	libgcc_s.so.1
+)
+
+# Cache of `ldconfig -p`, populated lazily. ldconfig lives in /sbin on several
+# distros and is not always on a user's PATH.
+LDCONFIG_CACHE=
+load_ldconfig_cache() {
+	[[ -n $LDCONFIG_CACHE ]] && return 0
+	local ldconfig
+	for ldconfig in ldconfig /sbin/ldconfig /usr/sbin/ldconfig; do
+		if command -v "$ldconfig" >/dev/null 2>&1; then
+			LDCONFIG_CACHE=$("$ldconfig" -p 2>/dev/null) && [[ -n $LDCONFIG_CACHE ]] && return 0
+		fi
+	done
+	LDCONFIG_CACHE=unavailable
+}
+
+readonly LIB_SEARCH_DIRS=(
+	/usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu /lib /lib64
+	/usr/local/lib /usr/local/lib64
+)
+
+have_lib() {
+	local soname=$1 dir
+
+	load_ldconfig_cache
+	if [[ $LDCONFIG_CACHE != unavailable ]]; then
+		grep -qF -- "$soname " <<<"$LDCONFIG_CACHE" && return 0
+	fi
+
+	# ldconfig missing or the cache is stale — fall back to a direct look.
+	for dir in "${LIB_SEARCH_DIRS[@]}"; do
+		[[ -e $dir/$soname ]] && return 0
+	done
+	return 1
+}
+
+missing_libs() {
+	local soname
+	for soname in "${REQUIRED_LIBS[@]}"; do
+		have_lib "$soname" || printf '%s\n' "$soname"
+	done
+}
+
+# Map missing sonames to package names for the distro we are actually on,
+# so the error message is copy-pasteable instead of generic.
+install_hint() {
+	local id id_like
+	# Container images and a few minimal distros ship no /etc/os-release at
+	# all, so an empty result has to be a valid answer rather than a failure.
+	id=$(. /etc/os-release 2>/dev/null && printf '%s' "${ID:-}") || id=
+	id_like=$(. /etc/os-release 2>/dev/null && printf '%s' "${ID_LIKE:-}") || id_like=
+
+	case " $id $id_like " in
+		*" arch "*|*" cachyos "*|*" manjaro "*|*" steamos "*)
+			printf 'sudo pacman -S --needed fontconfig freetype2 expat zlib bzip2 libpng brotli libx11 libxcb libxau libxdmcp gcc-libs icu' ;;
+		*" debian "*|*" ubuntu "*)
+			printf 'sudo apt install libfontconfig1 libfreetype6 libexpat1 zlib1g libbz2-1.0 libpng16-16 libbrotli1 libx11-6 libxcb1 libxau6 libxdmcp6 libstdc++6' ;;
+		*" fedora "*|*" rhel "*|*" centos "*)
+			printf 'sudo dnf install fontconfig freetype expat zlib bzip2-libs libpng libbrotli libX11 libxcb libXau libXdmcp libstdc++ libicu' ;;
+		*" opensuse "*|*" suse "*)
+			printf 'sudo zypper install fontconfig freetype2 libexpat1 libz1 libbz2-1 libpng16-16 libbrotlidec1 libX11-6 libxcb1 libXau6 libXdmcp6 libstdc++6 libicu' ;;
+		*)
+			printf 'install the packages providing the libraries listed above' ;;
+	esac
+}
+
+# ---------------------------------------------------------------------------
+# Globalization
+#
+# .NET probes for a versioned libicuuc and aborts at startup if it finds
+# nothing. Minimal installs and containers often ship no ICU at all, so fall
+# back to invariant mode rather than letting the app die.
+# ---------------------------------------------------------------------------
+
+have_icu() {
+	local dir
+	load_ldconfig_cache
+	if [[ $LDCONFIG_CACHE != unavailable ]]; then
+		grep -q 'libicuuc\.so\.' <<<"$LDCONFIG_CACHE" && return 0
+	fi
+	for dir in "${LIB_SEARCH_DIRS[@]}"; do
+		compgen -G "$dir/libicuuc.so.*" >/dev/null 2>&1 && return 0
+	done
+	return 1
+}
+
+# ---------------------------------------------------------------------------
+# Display server
+#
+# Avalonia's Linux backend is X11 only. On a Wayland session that means
+# XWayland; without it the app core-dumps on XOpenDisplay.
+# ---------------------------------------------------------------------------
+
+check_display() {
+	[[ -n ${DISPLAY:-} ]] && return 0
+
+	if [[ -n ${WAYLAND_DISPLAY:-} ]]; then
+		err "A Wayland session was detected but DISPLAY is not set."
+		log ""
+		log "  Aurora is built on Avalonia, which renders through X11 only. Running"
+		log "  it on Wayland requires XWayland, and XWayland is what sets DISPLAY."
+		log ""
+		log "  Install XWayland (Arch: ${C_BOLD}xorg-xwayland${C_OFF}, Debian/Ubuntu:"
+		log "  ${C_BOLD}xwayland${C_OFF}, Fedora: ${C_BOLD}xorg-x11-server-Xwayland${C_OFF}) and log back in."
+	else
+		err "No graphical display found (neither DISPLAY nor WAYLAND_DISPLAY is set)."
+		log ""
+		log "  Aurora is a desktop application and cannot run on a plain TTY or over"
+		log "  an SSH session without X11 forwarding (${C_BOLD}ssh -X${C_OFF})."
+		log ""
+		log "  On a Steam Deck, switch to Desktop Mode before launching."
+	fi
+	return 1
+}
+
+# ---------------------------------------------------------------------------
+# Runtime directory
+#
+# Aurora stores its settings next to its own executable. When the payload is
+# installed system-wide that directory is read-only and every setting is lost
+# on restart (upstream 3.2.0 warns about this but cannot fix it). Mirroring
+# the payload into the user's data directory makes system packages behave.
+# ---------------------------------------------------------------------------
+
+dir_is_writable() {
+	[[ -d $1 && -w $1 ]]
+}
+
+sync_runtime_dir() {
+	local payload=$1 file src dst
+
+	mkdir -p "$RUNTIME_APP_DIR" ||
+		die "Cannot create the runtime directory $RUNTIME_APP_DIR."
+
+	local mode
+	for file in AuroraLauncher libSkiaSharp.so libHarfBuzzSharp.so; do
+		src=$payload/$file
+		dst=$RUNTIME_APP_DIR/$file
+
+		if [[ $file == AuroraLauncher ]]; then mode=755; else mode=644; fi
+
+		# Copy only when the payload actually changed, so an upgrade is picked
+		# up but a normal launch stays instant.
+		if [[ ! -e $dst || $src -nt $dst ]] || ! cmp -s "$src" "$dst"; then
+			info "Preparing $file in $RUNTIME_APP_DIR"
+			install -m "$mode" "$src" "$dst.tmp" ||
+				die "Failed to copy $file into $RUNTIME_APP_DIR."
+			mv -f "$dst.tmp" "$dst" ||
+				die "Failed to replace $dst."
+			audit "synced $file from $payload"
+		fi
+	done
+
+	printf '%s\n' "$RUNTIME_APP_DIR"
+}
+
+# ---------------------------------------------------------------------------
+# Steam discovery
+#
+# Upstream looks for Steam in the Steam Deck's locations. Reporting what we
+# find here makes `--doctor` useful on distros that put Steam elsewhere, and
+# covers Flatpak and Snap installs.
+# ---------------------------------------------------------------------------
+
+# ~/.steam/steam, ~/.steam/root and ~/.local/share/Steam are usually symlinks
+# to one directory, so canonicalise before reporting or the same install shows
+# up three times.
+steam_roots() {
+	local candidate resolved
+	local -A seen=()
+
+	for candidate in \
+		"$HOME/.steam/steam" \
+		"$HOME/.steam/root" \
+		"$HOME/.local/share/Steam" \
+		"$HOME/.var/app/com.valvesoftware.Steam/data/Steam" \
+		"$HOME/snap/steam/common/.local/share/Steam" \
+		"/usr/share/steam"
+	do
+		[[ -d $candidate ]] || continue
+		resolved=$(readlink -f "$candidate" 2>/dev/null) || resolved=$candidate
+		[[ -n ${seen[$resolved]:-} ]] && continue
+		seen[$resolved]=1
+		printf '%s\n' "$resolved"
+	done
+}
+
+compat_tool_dirs() {
+	local root
+	while read -r root; do
+		[[ -d $root/compatibilitytools.d ]] && printf '%s\n' "$root/compatibilitytools.d"
+	done < <(steam_roots)
+	return 0
+}
+
+# ---------------------------------------------------------------------------
+# Subcommands
+# ---------------------------------------------------------------------------
+
+show_version() {
+	printf '%s wrapper %s\n' "$PROG" "$WRAPPER_VERSION"
+	local payload
+	if payload=$(find_payload_dir "$(resolve_self)"); then
+		printf 'payload: %s\n' "$payload"
+	else
+		printf 'payload: not found\n'
+	fi
+}
+
+show_help() {
+	cat <<EOF
+${C_BOLD}$PROG${C_OFF} — Aurora Steam Deck Tool for Linux
+
+${C_BOLD}Usage:${C_OFF}
+  $PROG [options] [-- upstream arguments...]
+
+${C_BOLD}Options:${C_OFF}
+  --doctor        Check this system for everything Aurora needs and exit
+  --where         Print the payload and runtime directories and exit
+  --log           Print the path of the wrapper log and exit
+  --version       Print version information and exit
+  --help          Show this message and exit
+
+Any other argument is passed through to the upstream launcher unchanged.
+
+${C_BOLD}Environment:${C_OFF}
+  AURORA_SDTOOL_LIBDIR    Override where the payload is looked up
+  AURORA_SDTOOL_NO_SYNC=1 Never mirror the payload into ~/.local/share
+  DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+                          Force invariant globalization (set automatically
+                          when no ICU library is present)
+
+Persistent overrides go in $CONFIG_DIR/env, which is sourced at startup.
+
+${C_BOLD}Files:${C_OFF}
+  $CONFIG_DIR/env    wrapper configuration
+  $RUNTIME_APP_DIR   per-user copy of the payload
+  $LOG_FILE          wrapper log
+EOF
+}
+
+show_where() {
+	local payload
+	payload=$(find_payload_dir "$(resolve_self)") || payload='(not found)'
+	printf 'payload:  %s\n' "$payload"
+	printf 'runtime:  %s\n' "$RUNTIME_APP_DIR"
+	printf 'config:   %s\n' "$CONFIG_DIR"
+	printf 'state:    %s\n' "$STATE_DIR"
+}
+
+ok_mark()   { printf '  %s✓%s %s\n' "$C_GREEN" "$C_OFF" "$*"; }
+bad_mark()  { printf '  %s✗%s %s\n' "$C_RED" "$C_OFF" "$*"; }
+warn_mark() { printf '  %s!%s %s\n' "$C_YELLOW" "$C_OFF" "$*"; }
+note()      { printf '    %s%s%s\n' "$C_DIM" "$*" "$C_OFF"; }
+
+run_doctor() {
+	local problems=0 payload missing dir pretty
+
+	pretty=$(. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-}") || pretty=
+	pretty=${pretty:-unknown}
+
+	printf '%s%s %s%s\n\n' "$C_BOLD" "$PROG" "$WRAPPER_VERSION" "$C_OFF"
+
+	printf '%sSystem%s\n' "$C_BOLD" "$C_OFF"
+	ok_mark "distribution: $pretty"
+	ok_mark "kernel: $(uname -sr)"
+	if [[ $(uname -m) == x86_64 ]]; then
+		ok_mark "architecture: x86_64"
+	else
+		bad_mark "architecture: $(uname -m) — upstream ships x86_64 binaries only"
+		note "Aurora will not run on this machine."
+		problems=$(( problems + 1 ))
+	fi
+	printf '\n'
+
+	printf '%sPayload%s\n' "$C_BOLD" "$C_OFF"
+	if payload=$(find_payload_dir "$(resolve_self)"); then
+		ok_mark "found at $payload"
+		if [[ -x $payload/AuroraLauncher ]]; then
+			ok_mark "AuroraLauncher is executable"
+		else
+			bad_mark "AuroraLauncher is not executable"
+			note "Fix with: chmod +x $payload/AuroraLauncher"
+			problems=$(( problems + 1 ))
+		fi
+		if dir_is_writable "$payload"; then
+			ok_mark "payload directory is writable — Aurora runs in place"
+		else
+			ok_mark "payload directory is read-only — mirrored to $RUNTIME_APP_DIR"
+			note "This is normal and expected for a system-wide install."
+		fi
+	else
+		bad_mark "payload not found"
+		note "Reinstall, or point AURORA_SDTOOL_LIBDIR at the directory holding"
+		note "AuroraLauncher, libSkiaSharp.so and libHarfBuzzSharp.so."
+		problems=$(( problems + 1 ))
+	fi
+	printf '\n'
+
+	printf '%sLibraries%s\n' "$C_BOLD" "$C_OFF"
+	missing=$(missing_libs)
+	if [[ -z $missing ]]; then
+		ok_mark "all ${#REQUIRED_LIBS[@]} required libraries present"
+	else
+		while read -r dir; do
+			bad_mark "missing $dir"
+			problems=$(( problems + 1 ))
+		done <<<"$missing"
+		note "Install with: $(install_hint)"
+	fi
+
+	if have_icu; then
+		ok_mark "ICU present — full globalization support"
+	else
+		warn_mark "no ICU library found"
+		note "Invariant globalization will be enabled automatically. Aurora works,"
+		note "but locale-specific sorting and formatting fall back to English."
+	fi
+	printf '\n'
+
+	printf '%sDisplay%s\n' "$C_BOLD" "$C_OFF"
+	if [[ -n ${DISPLAY:-} ]]; then
+		ok_mark "X11 display available (DISPLAY=$DISPLAY)"
+		[[ -n ${WAYLAND_DISPLAY:-} ]] && note "Running through XWayland on a Wayland session."
+	elif [[ -n ${WAYLAND_DISPLAY:-} ]]; then
+		bad_mark "Wayland session without XWayland (DISPLAY is unset)"
+		note "Aurora renders through X11 only. Install XWayland and log back in."
+		problems=$(( problems + 1 ))
+	else
+		bad_mark "no graphical display detected"
+		note "Aurora needs a desktop session. On a Steam Deck use Desktop Mode."
+		problems=$(( problems + 1 ))
+	fi
+	printf '\n'
+
+	printf '%sSteam%s\n' "$C_BOLD" "$C_OFF"
+	if [[ -n $(steam_roots) ]]; then
+		while read -r dir; do ok_mark "Steam data at $dir"; done < <(steam_roots)
+		if [[ -n $(compat_tool_dirs) ]]; then
+			while read -r dir; do ok_mark "compatibility tools in $dir"; done < <(compat_tool_dirs)
+		else
+			warn_mark "no compatibilitytools.d directory yet"
+			note "Aurora creates it during installation. Nothing to do."
+		fi
+	else
+		warn_mark "no Steam installation found"
+		note "Aurora installs and runs, but cannot hook games until Steam is set up."
+	fi
+	printf '\n'
+
+	printf '%sDesktop integration%s\n' "$C_BOLD" "$C_OFF"
+	local desktop_found=0 desktop_dirs=(
+		"$XDG_DATA_HOME/applications"
+		/usr/share/applications
+		/usr/local/share/applications
+	)
+	# Also look in the prefix the payload was installed into, so a custom
+	# --prefix is not reported as missing its own desktop entry.
+	[[ -n ${payload:-} && $payload != '(not found)' ]] &&
+		desktop_dirs+=("$payload/../../share/applications")
+
+	for dir in "${desktop_dirs[@]}"; do
+		if [[ -f $dir/$PROG.desktop ]]; then
+			ok_mark "desktop entry in $(cd "$dir" && pwd)"
+			desktop_found=1
+		fi
+	done
+	(( desktop_found )) || warn_mark "no desktop entry installed — launch from a terminal, or run scripts/install.sh"
+	printf '\n'
+
+	if (( problems == 0 )); then
+		printf '%sNo problems found.%s\n' "$C_GREEN$C_BOLD" "$C_OFF"
+	else
+		printf '%s%d problem(s) found.%s See docs/TROUBLESHOOTING.md.\n' \
+			"$C_RED$C_BOLD" "$problems" "$C_OFF"
+	fi
+	return $(( problems > 0 ))
+}
+
+# ---------------------------------------------------------------------------
+# Launch
+# ---------------------------------------------------------------------------
+
+main() {
+	case ${1:-} in
+		--doctor)  run_doctor; exit $? ;;
+		--version) show_version; exit 0 ;;
+		--help|-h) show_help; exit 0 ;;
+		--where)   show_where; exit 0 ;;
+		--log)     printf '%s\n' "$LOG_FILE"; exit 0 ;;
+		--)        shift ;;
+	esac
+
+	local self_dir payload rundir missing
+	self_dir=$(resolve_self)
+
+	payload=$(find_payload_dir "$self_dir") || die \
+"Could not find the Aurora payload.
+
+  Expected AuroraLauncher, libSkiaSharp.so and libHarfBuzzSharp.so in one of:
+    $self_dir/../lib/$PROG
+    $self_dir/../vendor
+    $RUNTIME_APP_DIR
+    /usr/lib/$PROG
+    /opt/$PROG
+
+  Reinstall, or set AURORA_SDTOOL_LIBDIR to the directory holding them."
+
+	missing=$(missing_libs)
+	if [[ -n $missing ]]; then
+		err "Aurora cannot start — required system libraries are missing:"
+		log ""
+		while read -r lib; do log "    $lib"; done <<<"$missing"
+		log ""
+		log "  Install them with:"
+		log "    ${C_BOLD}$(install_hint)${C_OFF}"
+		log ""
+		log "  Run '${C_BOLD}$PROG --doctor${C_OFF}' to re-check afterwards."
+		audit "startup blocked: missing libraries: $(tr '\n' ' ' <<<"$missing")"
+		exit 1
+	fi
+
+	check_display || { audit "startup blocked: no usable display"; exit 1; }
+
+	if ! have_icu && [[ -z ${DOTNET_SYSTEM_GLOBALIZATION_INVARIANT:-} ]]; then
+		warn "No ICU library found — starting in invariant globalization mode."
+		export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+		audit "enabled invariant globalization (no ICU present)"
+	fi
+
+	# Run in place when we can write there, otherwise mirror to the user's
+	# data directory so Aurora keeps its settings across restarts.
+	if [[ ${AURORA_SDTOOL_NO_SYNC:-0} == 1 ]] || dir_is_writable "$payload"; then
+		rundir=$payload
+	else
+		rundir=$(sync_runtime_dir "$payload")
+	fi
+
+	[[ -x $rundir/AuroraLauncher ]] || chmod +x "$rundir/AuroraLauncher" 2>/dev/null || true
+	[[ -x $rundir/AuroraLauncher ]] ||
+		die "$rundir/AuroraLauncher is not executable and its permissions cannot be changed."
+
+	mkdir -p "$CONFIG_DIR" "$STATE_DIR" 2>/dev/null || true
+
+	# The launcher resolves libSkiaSharp/libHarfBuzzSharp next to its own
+	# executable; setting the search path as well keeps unusual layouts working.
+	export LD_LIBRARY_PATH=$rundir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+
+	# Exported for the app and for anything it spawns.
+	export AURORA_SDTOOL_RUNDIR=$rundir
+
+	audit "launching $rundir/AuroraLauncher${*:+ with args: $*}"
+
+	cd "$rundir" || die "Cannot enter $rundir."
+	exec ./AuroraLauncher "$@"
+}
+
+# Sourcing the script exposes the functions above without launching anything,
+# which is how tests/run-tests.sh exercises them.
+if [[ ${BASH_SOURCE[0]} == "${0}" ]]; then
+	main "$@"
+fi

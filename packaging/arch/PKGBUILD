@@ -1,0 +1,82 @@
+# Maintainer: aurora-sdtool-linux packaging contributors
+#
+# Builds from the working tree this PKGBUILD lives in:
+#   cd packaging/arch && makepkg -f
+#
+# Covers Arch, CachyOS, Manjaro, EndeavourOS and SteamOS.
+
+pkgname=aurora-sdtool
+pkgver=3.2.0
+pkgrel=1
+pkgdesc='Install and manage the Aurora game trainer for Steam Play titles'
+arch=('x86_64')
+url='https://www.cheathappens.com/'
+license=('LicenseRef-proprietary')
+
+# The payload is a prebuilt NativeAOT binary with its section headers already
+# removed. strip errors on it, and debug extraction has nothing to find.
+options=('!strip' '!debug' '!lto')
+
+# Everything the vendored NativeAOT payload links against at runtime.
+depends=(
+  'fontconfig'
+  'freetype2'
+  'expat'
+  'zlib'
+  'bzip2'
+  'libpng'
+  'brotli'
+  'libx11'
+  'libxcb'
+  'libxau'
+  'libxdmcp'
+  'gcc-libs'
+)
+
+optdepends=(
+  'icu: locale-aware sorting and formatting (invariant mode is used without it)'
+  'xorg-xwayland: required to run on a Wayland session'
+  'steam: to hook games through Steam Play'
+  'desktop-file-utils: desktop database refresh on install'
+)
+
+# The payload is proprietary and cannot be fetched from a public source.
+# It is taken from the repository this PKGBUILD is part of.
+source=()
+sha256sums=()
+
+_repo() {
+  (cd "$startdir/../.." && pwd)
+}
+
+prepare() {
+  local repo
+  repo=$(_repo)
+
+  [[ -f $repo/vendor/AuroraLauncher ]] || {
+    error 'vendor/AuroraLauncher is missing.'
+    error 'Add the upstream payload first:'
+    error '  scripts/vendor-upstream.sh /path/to/Aurora_SDTool.zip'
+    return 1
+  }
+
+  # Fail the build rather than package a payload that does not match upstream.
+  (cd "$repo/vendor" && sha256sum --quiet --check SHA256SUMS) || {
+    error 'The vendored payload does not match vendor/SHA256SUMS.'
+    return 1
+  }
+
+  [[ $(cat "$repo/VERSION") == "$pkgver" ]] || {
+    warning "VERSION is $(cat "$repo/VERSION") but pkgver is $pkgver — bump one of them."
+  }
+}
+
+package() {
+  local repo
+  repo=$(_repo)
+
+  bash "$repo/scripts/install.sh" --quiet --prefix /usr --destdir "$pkgdir"
+
+  install -Dm644 "$repo/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$repo/LEGAL.md" "$pkgdir/usr/share/licenses/$pkgname/LEGAL.md"
+}

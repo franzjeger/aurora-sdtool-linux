@@ -1,0 +1,20 @@
+# Normalise line endings for text, leave binaries alone.
+* text=auto eol=lf
+
+# Upstream payload — binary, never touched by filters or diffed.
+vendor/AuroraLauncher      binary
+vendor/*.so                binary
+*.png                      binary
+
+# Upstream documentation is redistributed verbatim, including its CRLF endings.
+docs/upstream/*.txt        -text
+
+# Keep generated and vendored files out of language statistics and diffs.
+vendor/**                  linguist-vendored
+docs/upstream/**           linguist-vendored
+
+# Exclude development-only paths from `git archive` release tarballs.
+/.github            export-ignore
+/.gitattributes     export-ignore
+/.gitignore         export-ignore
+/tests             export-ignore

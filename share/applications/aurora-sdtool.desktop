@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Aurora SD Tool
+GenericName=Game Trainer Manager
+Comment=Install and manage the Aurora game trainer for Steam Play titles
+Exec=aurora-sdtool
+TryExec=aurora-sdtool
+Icon=aurora-sdtool
+Terminal=false
+StartupNotify=true
+StartupWMClass=AuroraLauncher
+Categories=Game;
+Keywords=Aurora;CheatHappens;Trainer;Cheat;Steam;Proton;SteamDeck;Wine;
