@@ -109,8 +109,10 @@ Launch **Aurora SD Tool** from your application menu, or run `aurora-sdtool`.
 >
 > Everything it creates is listed under [Undoing an install](#undoing-an-install).
 
-After it installs, log in with your CheatHappens account. Then hook a game
-through Steam:
+After it installs, log in with your CheatHappens account — but read
+[how Aurora stores those credentials](LEGAL.md#how-aurora-stores-your-account-credentials)
+first; it keeps your email and a digest of your password in a world-readable
+file. Then hook a game through Steam:
 
 1. Right-click the game in your Steam library → **Properties**
 2. **Compatibility** → tick *Force the use of a specific Steam Play
