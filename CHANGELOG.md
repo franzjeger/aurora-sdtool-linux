@@ -1,7 +1,8 @@
 # Changelog
 
 Changes to the Linux packaging. Upstream application changes are recorded
-separately in [docs/upstream/Changelog.txt](docs/upstream/Changelog.txt).
+separately in upstream's own `Changelog.txt`, which
+`scripts/vendor-upstream.sh` extracts into `docs/upstream/`.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions track the upstream release they package.
@@ -55,4 +56,4 @@ First packaged release, built on upstream 3.2.0.
 - x86-64 only, because upstream publishes no other architecture. `--doctor`
   reports this rather than failing obscurely.
 
-[3.2.0]: https://github.com/OWNER/aurora-sdtool-linux/releases/tag/v3.2.0
+[3.2.0]: https://github.com/franzjeger/aurora-sdtool-linux/releases/tag/v3.2.0

@@ -121,7 +121,8 @@ through Steam:
 Per-game options — Proton version, which trainer to open, whether Aurora
 auto-activates — live in the **Games** tab. Non-Steam launchers such as Ubisoft
 Connect and the Epic Games Store are covered in
-[docs/upstream/Readme.txt](docs/upstream/Readme.txt).
+upstream's own `Readme.txt`, which `scripts/vendor-upstream.sh` extracts into
+`docs/upstream/`.
 
 ### Command line
 
@@ -176,7 +177,7 @@ it hands the process over and leaves nothing behind.
 
 ```
 src/aurora-sdtool        the launcher wrapper — where the Linux support lives
-vendor/                  upstream payload, verbatim (see LEGAL.md)
+vendor/                  checksums and version metadata; the payload you supply lands here
 scripts/                 install, uninstall, payload refresh
 share/                   desktop entry, icon, AppStream metadata
 packaging/               Arch, Debian, RPM, AppImage, Flatpak
@@ -265,5 +266,6 @@ They complement each other rather than compete. See
 
 ## Licence
 
-MIT for the packaging — see [LICENSE](LICENSE). The upstream payload in
-`vendor/` is proprietary — see [LEGAL.md](LEGAL.md).
+MIT for the packaging — see [LICENSE](LICENSE). Aurora itself is proprietary,
+is not distributed here, and is not covered by that licence — see
+[LEGAL.md](LEGAL.md).
