@@ -119,6 +119,11 @@ chmod 755 "$STAGE/usr/bin/$APP" \
 step "building the package"
 mkdir -p "$OUT"
 DEB=$OUT/${APP}_${DEB_VERSION}_${ARCH}.deb
+# Remove any previous artefact first. Overwriting in place is not safe on a
+# filesystem that does not truncate — a synced or network-mounted checkout
+# leaves the tail of the older, larger file behind, and the result is a package
+# that dpkg can still unpack but ar and apt reject as malformed.
+rm -f "$DEB"
 dpkg-deb --root-owner-group --build "$STAGE" "$DEB" >/dev/null
 
 log ""

@@ -27,18 +27,18 @@ BuildRequires:  coreutils
 BuildRequires:  sed
 
 Requires:       bash
-Requires:       fontconfig
-Requires:       freetype
-Requires:       expat
-Requires:       zlib
-Requires:       bzip2-libs
-Requires:       libpng
-Requires:       libX11
-Requires:       libxcb
-Requires:       libXau
-Requires:       libXdmcp
-Requires:       libstdc++
-Requires:       libgcc
+
+# Sonames, not package names. Fedora calls it bzip2-libs and openSUSE calls it
+# libbz2-1; every RPM distribution provides the soname. Everything the payload
+# actually links against — fontconfig, and through it freetype, expat, zlib,
+# bzip2, libpng and brotli — is picked up by rpm's automatic dependency
+# generator, so only the libraries opened with dlopen need listing here.
+Requires:       libX11.so.6()(64bit)
+Requires:       libxcb.so.1()(64bit)
+Requires:       libXau.so.6()(64bit)
+Requires:       libXdmcp.so.6()(64bit)
+Requires:       libstdc++.so.6()(64bit)
+Requires:       libgcc_s.so.1()(64bit)
 
 Recommends:     libicu
 Recommends:     xorg-x11-server-Xwayland

@@ -52,6 +52,12 @@ tar --create --gzip \
 
 cp "$SPEC" "$TOPDIR/SPECS/"
 
+# Remove any previous artefact first. Overwriting in place is not safe on a
+# filesystem that does not truncate — a synced or network-mounted checkout
+# leaves the tail of the older, larger file behind, and the result is a package
+# that dpkg can still unpack but ar and apt reject as malformed.
+rm -f "$OUT"/*/"$APP-$VERSION"-*.rpm "$OUT/$APP-$VERSION"-*.rpm
+
 step "running rpmbuild"
 rpmbuild -bb \
 	--define "_topdir $TOPDIR" \

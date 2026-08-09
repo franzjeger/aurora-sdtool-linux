@@ -63,6 +63,11 @@ mkdir -p "$OUT"
 
 step "running appimagetool"
 IMAGE=$OUT/$APP-$VERSION-x86_64.AppImage
+# Remove any previous artefact first. Overwriting in place is not safe on a
+# filesystem that does not truncate — a synced or network-mounted checkout
+# leaves the tail of the older, larger file behind, and the result is a package
+# that dpkg can still unpack but ar and apt reject as malformed.
+rm -f "$IMAGE"
 # ARCH is how appimagetool decides the target; it has no way to infer it from
 # an AppDir that contains no ELF it recognises as the main binary.
 ARCH=x86_64 "$APPIMAGETOOL" --no-appstream "$APPDIR" "$IMAGE"

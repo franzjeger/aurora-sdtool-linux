@@ -66,6 +66,12 @@ Or `make arch` to build without installing.
 
 ### Debian, Ubuntu, Mint
 
+Verified by installing the built package in Debian 12, Debian 13 and Ubuntu
+24.04 containers: dependencies resolve, `--doctor` reports every library
+present, and purging leaves nothing behind. The `libpng16-16 | libpng16-16t64`
+alternative picks correctly on either side of the 64-bit time_t transition.
+
+
 ```bash
 make deb
 sudo apt install ./dist/aurora-sdtool_3.2.0-1_amd64.deb
@@ -74,6 +80,9 @@ sudo apt install ./dist/aurora-sdtool_3.2.0-1_amd64.deb
 Only `dpkg-deb` is needed, so the `.deb` can be built on a non-Debian host.
 
 ### Fedora, RHEL, openSUSE
+
+Verified in Fedora 41 and openSUSE Tumbleweed containers.
+
 
 ```bash
 make rpm

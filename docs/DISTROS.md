@@ -74,9 +74,11 @@ installs and runs without it; it just has nothing to hook until Steam exists.
 
 ## openSUSE
 
-The same RPM works. openSUSE splits library packages more finely than Fedora,
-which is why `install_hint()` carries a separate `zypper` line — `libz1`,
-`libbz2-1`, `libbrotlidec1`, `libX11-6` rather than Fedora's names.
+The same RPM works. openSUSE splits and names library packages differently
+from Fedora — `libbz2-1` rather than `bzip2-libs`, and so on — which is why the
+spec requires sonames instead of package names, and why `install_hint()`
+carries a separate `zypper` line. Verified by installing the same RPM on both
+Fedora 41 and Tumbleweed.
 
 Tumbleweed occasionally moves ahead of the ICU version .NET probes for. If
 Aurora starts complaining about globalization after an ICU bump, the wrapper's
