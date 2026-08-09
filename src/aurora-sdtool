@@ -724,6 +724,19 @@ run_doctor() {
 			note "Fix with: chmod +x $payload/AuroraLauncher"
 			problems=$(( problems + 1 ))
 		fi
+		if [[ -f $payload/SHA256SUMS ]]; then
+			if (cd "$payload" && sha256sum --quiet --check SHA256SUMS >/dev/null 2>&1); then
+				ok_mark "payload matches SHA256SUMS"
+			else
+				bad_mark "payload does not match SHA256SUMS"
+				note "Re-vendor from a known-good archive:"
+				note "  scripts/vendor-upstream.sh /path/to/Aurora_SDTool.zip"
+				problems=$(( problems + 1 ))
+			fi
+		else
+			warn_mark "no SHA256SUMS beside the payload — integrity not checked"
+		fi
+
 		ok_mark "runs from $RUNTIME_APP_DIR"
 		note "The prefix is kept as pristine source: upstream's installer deletes"
 		note "the launcher it started from, so it is mirrored before every launch."

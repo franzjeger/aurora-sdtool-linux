@@ -78,6 +78,15 @@ readonly USER_DATA=(
 
 info "Removing $APP from $PREFIX"
 
+# Undo the compatibility tool wrap first. It has to happen before the launcher
+# is deleted, because the launcher is the only thing that knows how — otherwise
+# a shim and a rewritten manifest are left behind in Steam's directory,
+# outliving the package that put them there.
+if [[ -x $PREFIX/bin/$APP ]]; then
+	step "undoing the Steam compatibility tool wrap, if any"
+	"$PREFIX/bin/$APP" --unwrap-compat-tool >/dev/null 2>&1 || true
+fi
+
 removed=0
 for target in "${TARGETS[@]}"; do
 	if [[ -e $target ]]; then

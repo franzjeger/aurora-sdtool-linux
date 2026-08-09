@@ -598,6 +598,68 @@ test_runtime_mirror() {
 	teardown
 }
 
+test_uninstall_unwraps() {
+	test_case "uninstall undoes the compatibility tool wrap" || return 0
+	setup
+
+	if [[ ! -f $REPO_ROOT/vendor/AuroraLauncher ]]; then
+		printf '  %s- skipped: vendor/ has no payload%s\n' "$C_DIM" "$C_OFF"
+		SKIP=$(( SKIP + 1 )); teardown; return 0
+	fi
+
+	local tool prefix=$SANDBOX/prefix
+	tool=$(make_compat_tool)
+	cp "$tool/toolmanifest.vdf" "$SANDBOX/manifest.orig"
+
+	WRAPPER_ENV=()
+	sandbox_env bash "$REPO_ROOT/scripts/install.sh" --quiet --prefix "$prefix" >/dev/null 2>&1
+	sandbox_env bash "$prefix/bin/aurora-sdtool" --wrap-compat-tool >/dev/null 2>&1
+
+	if compat_wrapped "$tool"; then
+		ok "the tool is wrapped before uninstalling"
+	else
+		no "the tool is wrapped before uninstalling"
+	fi
+
+	# Removing the package must not orphan a shim inside Steam's directory.
+	sandbox_env bash "$REPO_ROOT/scripts/uninstall.sh" --prefix "$prefix" >/dev/null 2>&1
+
+	if [[ -e $tool/aurora-compat-launch || -e $tool/aurora-sdtool-wrap.conf ]]; then
+		no "uninstalling removes the shim from Steam's directory"
+	else
+		ok "uninstalling removes the shim from Steam's directory"
+	fi
+	if diff -q "$SANDBOX/manifest.orig" "$tool/toolmanifest.vdf" >/dev/null; then
+		ok "uninstalling restores the original tool manifest"
+	else
+		no "uninstalling restores the original tool manifest"
+	fi
+
+	teardown
+}
+
+test_doctor_integrity() {
+	test_case "doctor verifies payload integrity" || return 0
+	setup
+	WRAPPER_ENV=(AURORA_SDTOOL_LIBDIR="$SANDBOX/payload")
+
+	(cd "$SANDBOX/payload" && sha256sum AuroraLauncher libSkiaSharp.so libHarfBuzzSharp.so >SHA256SUMS)
+	run_wrapper --doctor || true
+	assert_contains "$OUTPUT" "payload matches SHA256SUMS" "a matching payload is reported as intact"
+
+	printf 'tampered' >>"$SANDBOX/payload/libSkiaSharp.so"
+	local status=0
+	run_wrapper --doctor || status=$?
+	assert_contains "$OUTPUT" "does not match SHA256SUMS" "a modified payload is reported"
+	assert_eq "$status" 1 "a modified payload makes --doctor exit non-zero"
+
+	rm -f "$SANDBOX/payload/SHA256SUMS"
+	run_wrapper --doctor || true
+	assert_contains "$OUTPUT" "integrity not checked" "a missing SHA256SUMS is called out, not ignored"
+
+	teardown
+}
+
 test_required_libs_in_sync() {
 	test_case "library lists stay in sync" || return 0
 	setup
@@ -642,6 +704,8 @@ main() {
 	test_compat_shim
 	test_compat_wrap
 	test_runtime_mirror
+	test_doctor_integrity
+	test_uninstall_unwraps
 	test_required_libs_in_sync
 	test_install_uninstall
 

@@ -7,7 +7,7 @@ separately in upstream's own `Changelog.txt`, which
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions track the upstream release they package.
 
-## [3.2.0] — 2026-08-08
+## [3.2.0] — 2026-08-09
 
 First packaged release, built on upstream 3.2.0.
 
@@ -24,10 +24,10 @@ First packaged release, built on upstream 3.2.0.
 - Automatic fallback to `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` when the
   system has no ICU library, which otherwise aborts .NET at startup.
 - Per-user runtime directory. Aurora stores its settings next to its own
-  executable, so a system-wide install into a read-only prefix loses every
-  setting on restart. The wrapper mirrors the payload into
-  `~/.local/share/aurora-sdtool/app` and runs it from there when the install
-  prefix is not writable.
+  executable, and its installer deletes the launcher it was started from. The
+  wrapper therefore treats the install prefix as pristine source and always
+  runs from a mirror in `~/.local/share/aurora-sdtool/app`, restoring anything
+  removed from underneath it on the next start.
 - `--doctor`, which checks architecture, payload integrity, libraries, display
   server, Steam locations and desktop integration, and suggests a fix for each
   problem found.
@@ -40,19 +40,65 @@ First packaged release, built on upstream 3.2.0.
 - `scripts/vendor-upstream.sh`, which refreshes the payload from an official
   zip, validates the architecture, records checksums and regenerates
   `vendor/UPSTREAM.md`.
-- Desktop entry, 256×256 hicolor icon and AppStream metadata.
+- Desktop entry and AppStream metadata. The icon comes from the archive.
 - Packaging for Arch (`PKGBUILD`), Debian (`.deb`), RPM (`.spec`), AppImage and
   Flatpak.
 - Wrapper test suite and a `make check` target running shellcheck, `bash -n`,
   `desktop-file-validate` and `appstreamcli validate`.
 - GitHub Actions workflow running the checks and building packages.
-- Documentation: installation, per-distribution notes, troubleshooting, and the
-  redistribution and trademark position in `LEGAL.md`.
+- Documentation: installation, per-distribution notes, troubleshooting, the
+  redistribution and trademark position in `LEGAL.md`, and `docs/NATIVE-TOOLS.md`
+  on where native Linux scanners fit alongside Aurora.
+- Steam compatibility tool shim. Steam runs Aurora's own copy under
+  `compatibilitytools.d` directly, so the launcher is not in the game-launch
+  path at all. `--wrap-compat-tool` puts `aurora-compat-launch` in front of it,
+  applying the ICU fallback and library search path there too and logging every
+  launch to `~/.local/state/aurora-sdtool/compat-tool.log`. The shim cannot
+  block a game from starting: diagnostics are logged, never enforced, and every
+  path ends in the same hand-off with argv untouched.
+- `--doctor` verifies the payload against `SHA256SUMS` rather than only
+  checking that the files exist.
+- Uninstalling undoes the compatibility tool wrap before removing the launcher
+  that manages it, instead of orphaning a shim inside Steam's directory.
+- Automatic restoration of that wrap. Upstream's setup rewrites the tool
+  manifest whenever it runs, silently undoing it; the launcher restores it on
+  startup and again after Aurora exits.
+
+### Fixed
+
+- Opening Aurora's Games tab crashed 3.2.0 outright — `ConfigureGameConfigVM`
+  enumerates a `Configs` directory upstream never creates, and the resulting
+  `DirectoryNotFoundException` is unhandled. The directory is now created.
+- Wrapping rewrites every `commandline` entry in the tool manifest. Upstream
+  ships two — `commandline` and `commandline_waitforexitandrun` — and games
+  take the second, so wrapping only the first left the case that matters
+  bypassing the shim entirely.
+
+### Verified
+
+Tested end to end on CachyOS (KDE Plasma 6.7.4, Wayland with XWayland, Steam
+native, GE-Proton11-3) against Left 4 Dead:
+
+- Steam honours the rewritten manifest and invokes the shim by name. All four
+  invocations of a real launch went through it — `run` for the driver query and
+  script evaluator, then `waitforexitandrun` for the game — and Aurora received
+  the hand-off and opened its trainer.
+- The shim `exec`s itself away, leaving no extra process in the tree.
+- Restoring the wrap after upstream's setup reverts the manifest.
+- Installing with nothing vendored fails with an explanation and no partial
+  install; installing without the icon completes with a warning.
+- `make check` and the GitHub Actions workflow pass.
 
 ### Notes
 
-- Upstream binaries are redistributed unmodified and unpatched. Everything here
-  works around the upstream application from the outside.
+- Aurora is not distributed here and nothing in it is patched. Everything works
+  around the upstream application from the outside; supply your own copy of the
+  official archive with `scripts/vendor-upstream.sh`.
+- Steam caches the tool manifest at client startup, so Steam must be restarted
+  after wrapping before the shim is used.
+- Mouse clicks in Aurora's own trainer window land slightly below the pointer.
+  That is inside Aurora.exe under Proton and out of reach from here; display
+  scaling, DPI and window frame extents were all measured and ruled out.
 - x86-64 only, because upstream publishes no other architecture. `--doctor`
   reports this rather than failing obscurely.
 
