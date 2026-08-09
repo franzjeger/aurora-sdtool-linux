@@ -398,6 +398,11 @@ ensure_compat_config_dir() {
 	return 0
 }
 
+# Set by main() before it changes directory, so a wrap performed after the
+# launcher exits does not have to re-derive the payload location from a
+# relative $0 that no longer resolves.
+RESOLVED_PAYLOAD=
+
 wrap_compat_tool() {
 	local tool payload current target new_cmdline
 
@@ -407,8 +412,12 @@ wrap_compat_tool() {
   Aurora registers it with Steam when you first run '$PROG' and let it
   install. Do that first, then run this again."
 
-	payload=$(find_payload_dir "$(resolve_self)") ||
-		die "Cannot find the payload, so cannot find $SHIM to install."
+	if [[ -n $RESOLVED_PAYLOAD ]]; then
+		payload=$RESOLVED_PAYLOAD
+	else
+		payload=$(find_payload_dir "$(resolve_self)") ||
+			die "Cannot find the payload, so cannot find $SHIM to install."
+	fi
 
 	[[ -f $payload/$SHIM ]] || die \
 "$payload/$SHIM is missing.
@@ -510,6 +519,70 @@ EOF
 	log ""
 }
 
+# Opening the desktop application re-runs upstream's setup, which re-registers
+# the compatibility tool and rewrites its manifest — silently dropping the
+# wrap. These two put it back: one heals a wrap lost in an earlier session,
+# the other watches the session that is about to start.
+
+restore_wrap_if_dropped() {
+	local tool
+	tool=$(find_compat_tool) || return 0
+
+	# Only restore something this project put there in the first place.
+	[[ -f $tool/$SHIM ]] || return 0
+	compat_tool_is_wrapped "$tool" && return 0
+
+	audit "compatibility tool wrap was missing at startup — restoring"
+	if wrap_compat_tool >/dev/null 2>&1; then
+		info "Restored the Steam compatibility tool wrap."
+	else
+		warn "Could not restore the compatibility tool wrap."
+		log "  Run '${C_BOLD}$PROG --wrap-compat-tool${C_OFF}' once Aurora has closed."
+	fi
+	return 0
+}
+
+# Run the launcher in the foreground and restore the wrap once Aurora is gone.
+#
+# Aurora hands off to the copy it installed under compatibilitytools.d, so our
+# own child exits well before the user closes the window. Restoring at that
+# moment would race the instance still running, which re-registers the tool as
+# it goes — so wait for the last AuroraLauncher to exit first.
+run_and_restore_wrap() {
+	local status=0 child waited=0
+
+	./AuroraLauncher "$@" &
+	child=$!
+	# Pass a termination request on rather than orphaning the launcher.
+	trap 'kill -TERM "$child" 2>/dev/null' TERM INT
+	wait "$child" || status=$?
+	trap - TERM INT
+
+	if command -v pgrep >/dev/null 2>&1; then
+		# Bounded so a launcher left open indefinitely cannot strand this
+		# process forever; restoring late still beats not restoring.
+		while pgrep -x AuroraLauncher >/dev/null 2>&1 && (( waited < 21600 )); do
+			sleep 5
+			waited=$(( waited + 5 ))
+		done
+	fi
+
+	local tool
+	if tool=$(find_compat_tool) && [[ -f $tool/$SHIM ]] &&
+		! compat_tool_is_wrapped "$tool"
+	then
+		audit "compatibility tool wrap dropped during the session — restoring"
+		if wrap_compat_tool >/dev/null 2>&1; then
+			info "Restored the Steam compatibility tool wrap."
+		else
+			warn "Could not restore the compatibility tool wrap."
+			log "  Run: ${C_BOLD}$PROG --wrap-compat-tool${C_OFF}"
+		fi
+	fi
+
+	return $status
+}
+
 unwrap_compat_tool() {
 	local tool
 
@@ -586,8 +659,8 @@ ${C_BOLD}Steam compatibility tool:${C_OFF}
                          the same environment fixes and its own log
   --unwrap-compat-tool   Undo that, restoring the original manifest
 
-  Aurora rewrites the tool directory when it updates itself, which undoes the
-  wrap. --doctor reports when that has happened.
+  Upstream's setup rewrites the manifest and drops the wrap whenever it runs.
+  The launcher restores it automatically, on startup and after Aurora exits.
 
 Any other argument is passed through to the upstream launcher unchanged.
 
@@ -852,7 +925,25 @@ main() {
 
 	audit "launching $rundir/AuroraLauncher${*:+ with args: $*}"
 
+	RESOLVED_PAYLOAD=$payload
+	restore_wrap_if_dropped
+
+	# Whether there is a wrap worth protecting decides how we hand over.
+	local tool wrap_active=0
+	if tool=$(find_compat_tool) && compat_tool_is_wrapped "$tool"; then
+		wrap_active=1
+	fi
+
 	cd "$rundir" || die "Cannot enter $rundir."
+
+	# With a wrap in place, stay alive to put it back after upstream's setup
+	# rewrites the manifest. With no wrap there is nothing to restore, so hand
+	# the process over outright and leave no wrapper behind.
+	if (( wrap_active )); then
+		run_and_restore_wrap "$@"
+		exit $?
+	fi
+
 	exec ./AuroraLauncher "$@"
 }
 

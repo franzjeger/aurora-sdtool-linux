@@ -211,8 +211,14 @@ Afterwards each launch is recorded in
 `~/.local/state/aurora-sdtool/compat-tool.log`, and that path also gets the ICU
 fallback and library search path the desktop launcher has.
 
-If the log stops appearing later, Aurora updated itself and rewrote the tool
-directory. `aurora-sdtool --doctor` reports that; re-run `--wrap-compat-tool`.
+Upstream's setup rewrites the manifest every time it runs, which drops the
+wrap. The launcher puts it back by itself — on startup, and again once Aurora
+has exited. `aurora-sdtool --doctor` shows the current state, and
+`--wrap-compat-tool` is safe to re-run at any time.
+
+This is why `aurora-sdtool` stays running while a wrapped Aurora is open: it
+waits for the last launcher to exit before restoring. Without a wrap it execs
+and leaves no process behind.
 
 The shim cannot prevent a game from starting — every problem it finds is
 logged, never enforced, and it always hands off with your arguments unchanged.

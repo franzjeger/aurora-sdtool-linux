@@ -423,6 +423,14 @@ EOF
 	printf '%s\n' "$tool"
 }
 
+# Mirrors compat_tool_is_wrapped: the shim exists and every command line goes
+# through it. A partial rewrite is not a wrap.
+compat_wrapped() {
+	[[ -f $1/aurora-compat-launch ]] || return 1
+	grep -q '"/AuroraLauncher' "$1/toolmanifest.vdf" && return 1
+	grep -q '"/aurora-compat-launch' "$1/toolmanifest.vdf"
+}
+
 test_compat_shim() {
 	test_case "compatibility tool shim" || return 0
 	setup
@@ -525,6 +533,28 @@ test_compat_wrap() {
 		ok "unwrapping leaves nothing behind"
 	fi
 
+	# Opening the desktop app re-runs upstream's setup, which rewrites the
+	# manifest. The next start has to notice and put the wrap back by itself.
+	run_wrapper --wrap-compat-tool
+	cp "$SANDBOX/manifest.orig" "$tool/toolmanifest.vdf"
+	assert_eq "$(in_wrapper 'restore_wrap_if_dropped >/dev/null 2>&1; echo done')" "done" \
+		"restoring a dropped wrap completes"
+	if compat_wrapped "$tool"; then
+		ok "a wrap dropped by upstream's setup is restored automatically"
+	else
+		no "a wrap dropped by upstream's setup is restored automatically"
+	fi
+
+	# With no shim present there is nothing of ours to restore, so it must
+	# leave an unwrapped tool alone rather than wrapping it uninvited.
+	run_wrapper --unwrap-compat-tool
+	in_wrapper 'restore_wrap_if_dropped >/dev/null 2>&1' >/dev/null
+	if compat_wrapped "$tool"; then
+		no "an unwrapped tool is left alone"
+	else
+		ok "an unwrapped tool is left alone"
+	fi
+
 	# A manifest in an unfamiliar format must be refused, not mangled.
 	printf '"manifest"\n{\n  "version" "2"\n}\n' >"$tool/toolmanifest.vdf"
 	cp "$tool/toolmanifest.vdf" "$SANDBOX/manifest.weird"
@@ -547,7 +577,7 @@ test_runtime_mirror() {
 
 	local rundir=$SANDBOX/home/.local/share/aurora-sdtool/app
 
-	assert_eq "$(in_wrapper "sync_runtime_dir '$SANDBOX/payload' >/dev/null 2>&1; echo done")" done \
+	assert_eq "$(in_wrapper "sync_runtime_dir '$SANDBOX/payload' >/dev/null 2>&1; echo done")" "done" \
 		"mirroring completes"
 	if [[ -x $rundir/AuroraLauncher && -f $rundir/libSkiaSharp.so && -f $rundir/libHarfBuzzSharp.so ]]; then
 		ok "the payload is mirrored into the runtime directory"

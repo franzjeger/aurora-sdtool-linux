@@ -158,8 +158,14 @@ are logged, never enforced, and every path ends in the same hand-off with your
 arguments untouched. `--unwrap-compat-tool` restores the original manifest from
 the backup it keeps.
 
-Aurora rewrites that directory when it updates itself, which quietly undoes the
-wrap. `--doctor` notices and tells you to run it again.
+Opening the desktop app re-runs upstream's setup, which rewrites the manifest
+and drops the wrap — as does an Aurora self-update. The launcher restores it
+by itself: once on startup, and again after Aurora exits. `--doctor` reports
+the state either way, and `--wrap-compat-tool` is always safe to re-run.
+
+Because of that, `aurora-sdtool` stays running in the background while a
+wrapped Aurora is open, so it can put the wrap back afterwards. Without a wrap
+it hands the process over and leaves nothing behind.
 
 ## Layout
 
