@@ -101,20 +101,35 @@ chmod 755 "$BINDIR/$APP"
 step "installing compatibility tool shim -> $PREFIX/lib/$APP"
 install -m 755 "$REPO_ROOT/src/aurora-compat-launch" "$LIBDIR/aurora-compat-launch"
 
-step "installing desktop entry, icon and metadata"
+step "installing desktop entry and metadata"
 install -m 644 "$REPO_ROOT/share/applications/$APP.desktop" \
 	"$DATADIR/applications/$APP.desktop"
-install -m 644 "$REPO_ROOT/share/icons/hicolor/256x256/apps/$APP.png" \
-	"$DATADIR/icons/hicolor/256x256/apps/$APP.png"
 install -m 644 "$REPO_ROOT/share/metainfo/$APPID.metainfo.xml" \
 	"$DATADIR/metainfo/$APPID.metainfo.xml"
 
+# The icon is CheatHappens' artwork and is not redistributed here, so it only
+# exists after scripts/vendor-upstream.sh has extracted it. Without it the
+# desktop entry falls back to a generic icon, which is not worth failing over.
+if [[ -f $REPO_ROOT/share/icons/hicolor/256x256/apps/$APP.png ]]; then
+	step "installing icon"
+	install -m 644 "$REPO_ROOT/share/icons/hicolor/256x256/apps/$APP.png" \
+		"$DATADIR/icons/hicolor/256x256/apps/$APP.png"
+else
+	warn "No icon found — the menu entry will use a generic one."
+	log "  Run 'scripts/vendor-upstream.sh <zip>' to extract it from the archive."
+fi
+
 step "installing documentation"
-install -m 644 "$REPO_ROOT/README.md"                  "$DOCDIR/README.md"
-install -m 644 "$REPO_ROOT/CHANGELOG.md"               "$DOCDIR/CHANGELOG.md"
-install -m 644 "$REPO_ROOT/LEGAL.md"                   "$DOCDIR/LEGAL.md"
-install -m 644 "$REPO_ROOT/docs/upstream/Readme.txt"   "$DOCDIR/upstream-Readme.txt"
-install -m 644 "$REPO_ROOT/docs/upstream/Changelog.txt" "$DOCDIR/upstream-Changelog.txt"
+install -m 644 "$REPO_ROOT/README.md"    "$DOCDIR/README.md"
+install -m 644 "$REPO_ROOT/CHANGELOG.md" "$DOCDIR/CHANGELOG.md"
+install -m 644 "$REPO_ROOT/LEGAL.md"     "$DOCDIR/LEGAL.md"
+
+# Same story: upstream's own README and changelog come out of the archive.
+for doc in Readme Changelog; do
+	if [[ -f $REPO_ROOT/docs/upstream/$doc.txt ]]; then
+		install -m 644 "$REPO_ROOT/docs/upstream/$doc.txt" "$DOCDIR/upstream-$doc.txt"
+	fi
+done
 
 if [[ -z $DESTDIR ]]; then
 	step "refreshing desktop caches"

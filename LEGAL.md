@@ -21,32 +21,26 @@ byte-for-byte identical to the upstream release; checksums are recorded in
 
 ## Redistribution
 
-**CheatHappens has not granted redistribution rights for these binaries, and
-this repository does not claim any.** Keeping the payload in a private
-repository for your own machines is one thing; publishing it is another.
+**CheatHappens has not granted redistribution rights for Aurora, and this
+repository does not claim any.** Nothing of theirs is published here.
 
-If you intend to make this repository public:
+This repository contains packaging only. The following are deliberately absent
+from the repository and from its git history, and are listed in `.gitignore`:
 
-1. Ask CheatHappens for permission to redistribute the payload, **or**
-2. Remove `vendor/` from the published history and ship packaging only.
+- `vendor/AuroraLauncher`, `vendor/libSkiaSharp.so`, `vendor/libHarfBuzzSharp.so`
+- `share/icons/hicolor/256x256/apps/aurora-sdtool.png` (CheatHappens artwork)
+- `docs/upstream/*.txt` (upstream's own README and changelog)
 
-Option 2 is supported out of the box. Every script degrades gracefully when the
-payload is absent, and a user supplies their own copy with:
+Supply your own copy of the official archive, which provides all of them:
 
 ```bash
 scripts/vendor-upstream.sh ~/Downloads/Aurora_SDTool.zip
 ```
 
-To strip the payload before publishing:
-
-```bash
-git rm -r --cached vendor/AuroraLauncher vendor/libSkiaSharp.so vendor/libHarfBuzzSharp.so
-printf 'vendor/AuroraLauncher\nvendor/*.so\n' >> .gitignore
-```
-
-Note that `git rm --cached` only removes the files from the current commit —
-they stay in history. Use `git filter-repo` if the repository already has
-public commits containing them.
+Everything degrades gracefully without it: the install script refuses to run
+and says why, and a missing icon downgrades to a generic one rather than
+failing. `vendor/SHA256SUMS` and `vendor/UPSTREAM.md` remain, so you can verify
+that what you supplied matches the build this packaging was tested against.
 
 ## Trademarks
 
@@ -78,6 +72,11 @@ binary is closed source.
 
 Report bugs in the launcher wrapper, the install scripts or the packaging here.
 Attach the output of:
+
+```bash
+aurora-sdtool --doctor
+```
+
 
 ```bash
 aurora-sdtool --doctor

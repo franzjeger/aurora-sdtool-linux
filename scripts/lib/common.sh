@@ -43,7 +43,10 @@ check_payload() {
 		[[ -f $REPO_ROOT/vendor/$file ]] || die \
 "vendor/$file is missing.
 
-  The upstream payload is not in this checkout. Add it with:
+  This repository does not redistribute Aurora itself — see LEGAL.md. Supply
+  your own copy of the official archive, which also provides the icon and
+  upstream documentation:
+
     scripts/vendor-upstream.sh /path/to/Aurora_SDTool.zip"
 	done
 }

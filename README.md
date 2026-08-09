@@ -79,15 +79,20 @@ make appimage   # anything                         -> .AppImage
 Output lands in `dist/`. See [docs/INSTALL.md](docs/INSTALL.md) for Flatpak and
 for building on a machine other than the target.
 
-### Bring your own payload
+### Bring your own payload — required
 
-If `vendor/` is empty because the payload was stripped before publishing,
-supply the official archive yourself:
+**Aurora itself is not in this repository.** It is proprietary and not
+redistributable, so the packaging ships without it (see [LEGAL.md](LEGAL.md)).
+Download the official archive from CheatHappens, then:
 
 ```bash
 scripts/vendor-upstream.sh ~/Downloads/Aurora_SDTool.zip
 scripts/install.sh
 ```
+
+That extracts the launcher, both native libraries, the icon and upstream's
+documentation into the checkout, verifies the binary is x86-64, and records
+checksums. Everything else here works without it — only installing needs it.
 
 ## Use
 

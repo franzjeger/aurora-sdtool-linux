@@ -1,3 +1,10 @@
+# Upstream payload — proprietary, not redistributable. See LEGAL.md.
+# Restore it locally with: scripts/vendor-upstream.sh <Aurora_SDTool.zip>
+/vendor/AuroraLauncher
+/vendor/*.so
+/share/icons/hicolor/256x256/apps/aurora-sdtool.png
+/docs/upstream/*.txt
+
 # Build output
 /dist/
 
