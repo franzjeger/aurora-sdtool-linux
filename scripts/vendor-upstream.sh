@@ -37,21 +37,23 @@ if ! file -b "$WORK/AuroraLauncher" | grep -q 'ELF 64-bit.*x86-64'; then
 	die "AuroraLauncher in this archive is not an x86-64 ELF binary."
 fi
 
+# -D throughout: none of these directories exist in a fresh clone, because
+# everything they hold comes out of the archive rather than the repository.
 step "updating vendor/"
-install -m 755 "$WORK/AuroraLauncher"      "$REPO_ROOT/vendor/AuroraLauncher"
-install -m 644 "$WORK/libSkiaSharp.so"     "$REPO_ROOT/vendor/libSkiaSharp.so"
-install -m 644 "$WORK/libHarfBuzzSharp.so" "$REPO_ROOT/vendor/libHarfBuzzSharp.so"
+install -Dm 755 "$WORK/AuroraLauncher"      "$REPO_ROOT/vendor/AuroraLauncher"
+install -Dm 644 "$WORK/libSkiaSharp.so"     "$REPO_ROOT/vendor/libSkiaSharp.so"
+install -Dm 644 "$WORK/libHarfBuzzSharp.so" "$REPO_ROOT/vendor/libHarfBuzzSharp.so"
 
 if [[ -f $WORK/AuroraLauncher.png ]]; then
 	step "updating icon"
-	install -m 644 "$WORK/AuroraLauncher.png" \
+	install -Dm 644 "$WORK/AuroraLauncher.png" \
 		"$REPO_ROOT/share/icons/hicolor/256x256/apps/$APP.png"
 fi
 
 for doc in Readme.txt Changelog.txt; do
 	if [[ -f $WORK/$doc ]]; then
 		step "updating docs/upstream/$doc"
-		install -m 644 "$WORK/$doc" "$REPO_ROOT/docs/upstream/$doc"
+		install -Dm 644 "$WORK/$doc" "$REPO_ROOT/docs/upstream/$doc"
 	fi
 done
 
