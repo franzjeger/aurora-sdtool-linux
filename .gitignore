@@ -25,6 +25,10 @@
 /packaging/appimage/AppDir/
 *.AppImage
 
+# Claude Code's per-machine permission state. A shared .claude/settings.json
+# would still be tracked; only the .local. variant is personal.
+/.claude/settings.local.json
+
 # Editors and desktops
 *.swp
 *~
