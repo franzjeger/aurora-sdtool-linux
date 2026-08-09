@@ -6,8 +6,8 @@ Start here:
 aurora-sdtool --doctor
 ```
 
-It checks the architecture, the payload and its checksums, all fourteen
-required libraries, ICU, the display server, every Steam location it knows
+It checks the architecture, the payload and its checksums, every library the
+payload needs, ICU, the display server, every Steam location it knows
 about, and desktop integration — and prints a fix for each problem it finds.
 Most of what follows is the long form of one of its lines.
 
@@ -122,6 +122,37 @@ Substitute your own path for `~/Downloads/Aurora` if you changed it.
 
 **Delete nothing else under `compatibilitytools.d`** — Proton builds live
 there, and removing one breaks every game configured to use it.
+
+### "Permission denied" when installing system-wide, or when installing the package
+
+Not a bug in the scripts — root cannot read your checkout.
+
+A FUSE mount without `allow_other` (OneDrive, Dropbox, `sshfs`, `rclone`) is
+visible only to the user who mounted it. Anything running as root sees nothing
+there, so both of these fail with a bare `Permission denied` that says nothing
+about the real cause:
+
+```bash
+sudo scripts/install.sh --system
+sudo pacman -U packaging/arch/aurora-sdtool-*.pkg.tar.zst
+```
+
+`scripts/install.sh --system` now detects this and explains it. For the package,
+copy it somewhere local first:
+
+```bash
+cp packaging/arch/aurora-sdtool-*.pkg.tar.zst /tmp/
+sudo pacman -U /tmp/aurora-sdtool-*.pkg.tar.zst
+```
+
+Or work from a local clone entirely, which avoids every variant of this:
+
+```bash
+git clone . /tmp/aurora-build && cd /tmp/aurora-build
+scripts/vendor-upstream.sh /path/to/Aurora_SDTool.zip
+```
+
+A per-user install is unaffected — it never involves root.
 
 ## It starts but misbehaves
 

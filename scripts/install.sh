@@ -65,6 +65,26 @@ case $MODE in
 esac
 
 if [[ $MODE == system && -z $DESTDIR && $EUID -ne 0 ]]; then
+	# A FUSE mount without allow_other is invisible to root, so `sudo` on this
+	# very script fails with a bare "Permission denied" that points nowhere.
+	# Worth catching here, where we can still explain it.
+	fstype=$(stat -f -c %T "$REPO_ROOT" 2>/dev/null) || fstype=
+	case $fstype in
+		fuse*|nfs*|cifs*|smb*)
+			err "--system installs into $PREFIX and needs root."
+			log ""
+			log "  This checkout is on a ${C_BOLD}$fstype${C_OFF} filesystem, which root may not be"
+			log "  able to read. If sudo fails with 'Permission denied' on this script,"
+			log "  that is why — copy the checkout somewhere local first:"
+			log ""
+			log "    ${C_BOLD}git clone . /tmp/aurora-build && cd /tmp/aurora-build${C_OFF}"
+			log "    ${C_BOLD}scripts/vendor-upstream.sh /path/to/Aurora_SDTool.zip${C_OFF}"
+			log "    ${C_BOLD}sudo scripts/install.sh --system${C_OFF}"
+			log ""
+			log "  A per-user install needs none of this: ${C_BOLD}scripts/install.sh${C_OFF}"
+			exit 1
+			;;
+	esac
 	die "--system installs into $PREFIX and needs root. Re-run with sudo."
 fi
 

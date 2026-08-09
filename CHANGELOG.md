@@ -15,7 +15,10 @@ First packaged release, built on upstream 3.2.0.
 
 - `aurora-sdtool` launcher wrapper, which resolves the payload through
   symlinks, sets up the library search path and execs the upstream binary.
-- Startup preflight for the fourteen shared libraries the payload needs.
+- Startup preflight for the libraries the payload needs. The dynamic linker is
+  asked what it cannot resolve, rather than matching a fixed list of sonames
+  that differ between distributions; a short static list covers only what the
+  linker cannot see, being the X11 stack Avalonia opens with dlopen.
   A missing library is reported by name with the install command for the
   detected distribution, instead of the .NET `DllNotFoundException` and core
   dump upstream produces.

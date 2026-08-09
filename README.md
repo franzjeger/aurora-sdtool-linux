@@ -41,10 +41,12 @@ the wrapper around it.
 - Steam, for the parts of Aurora that hook games
 - A CheatHappens account
 
-Runtime libraries: `fontconfig`, `freetype`, `expat`, `zlib`, `bzip2`,
-`libpng`, `brotli`, `libX11`, `libxcb`, `libXau`, `libXdmcp`, `libstdc++`.
-ICU is used when present. All of these are already installed on any normal
-desktop system; `aurora-sdtool --doctor` tells you if something is missing.
+Runtime libraries: the X11 stack (`libX11`, `libxcb`, `libXau`, `libXdmcp`),
+`libstdc++`, and whatever `fontconfig` pulls in — `freetype`, `expat`, `zlib`,
+`bzip2`, `libpng`, `brotli`. ICU is used when present. All of these are already
+installed on any normal desktop system, and `aurora-sdtool --doctor` asks the
+dynamic linker directly rather than guessing, so it is right about the soname
+differences between distributions.
 
 ## Install
 

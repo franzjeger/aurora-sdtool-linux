@@ -15,6 +15,10 @@ install.
 cd packaging/arch && makepkg -fi
 ```
 
+If `makepkg -fi` or `pacman -U` fails with `Permission denied`, the checkout is
+on a filesystem root cannot read — see
+[Troubleshooting](TROUBLESHOOTING.md#permission-denied-when-installing-system-wide-or-when-installing-the-package).
+
 CachyOS ships `proton-cachyos` into `/usr/share/steam/compatibilitytools.d`,
 which upstream has scanned since 3.1.5, so those runners show up in Aurora's
 Proton list without configuration.
