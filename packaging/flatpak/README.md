@@ -27,6 +27,14 @@ flatpak override --user --filesystem=/mnt/games io.github.franzjeger.AuroraSDToo
 If you find yourself adding several, a native package is the better answer.
 Use `make arch`, `make deb` or `make rpm`.
 
+## Status
+
+Unlike the Arch, Debian, RPM and AppImage packaging, **this manifest has not
+been built**. It is valid YAML, the application ID matches, and the DejaVu
+checksum is verified against the real archive — but nobody has run
+`flatpak-builder` against it end to end, because that pulls the ~1 GB
+freedesktop 24.08 runtime. Treat it as untested and report what breaks.
+
 ## Building
 
 ```bash

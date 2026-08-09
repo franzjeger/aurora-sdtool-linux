@@ -84,6 +84,10 @@ sudo dnf install ./dist/x86_64/aurora-sdtool-3.2.0-1*.rpm
 
 ### AppImage
 
+Verified: the built image runs from its read-only mount, passes `--doctor`, and
+mirrors the payload into `~/.local/share` exactly as a system install does.
+
+
 ```bash
 make appimage
 chmod +x dist/aurora-sdtool-3.2.0-x86_64.AppImage
