@@ -120,6 +120,25 @@ Two things are usually absent and both are handled:
 An X11 display still has to be reachable, which for a container means passing
 through `DISPLAY` and the X socket.
 
+## Verified
+
+The install hints `--doctor` prints are not guesses. Each was checked by
+stripping a container down to nothing, letting the launcher fail, running the
+exact command it suggested, and confirming the launcher then starts:
+
+| Distribution | Hint verified | Package verified |
+| --- | --- | --- |
+| Debian 12 | yes | `.deb` |
+| Debian 13 | — | `.deb` |
+| Ubuntu 24.04 | yes | `.deb` |
+| Fedora 41 | yes | `.rpm` |
+| openSUSE Tumbleweed | yes | `.rpm` |
+| Arch / CachyOS | — | `PKGBUILD`, installed system-wide |
+
+The AppImage was run on Debian 12 and Fedora 41 as well. It carries the payload
+but not the X11 stack, so on a bare container it reports exactly which libraries
+are missing rather than crashing — which is the behaviour intended.
+
 ## Adding a distribution
 
 If yours needs different package names, two places need updating:
