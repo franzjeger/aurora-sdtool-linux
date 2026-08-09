@@ -244,6 +244,20 @@ Common cases are written up in
 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md); per-distribution notes,
 including SteamOS's read-only root, are in [docs/DISTROS.md](docs/DISTROS.md).
 
+## When Aurora is the wrong tool
+
+Aurora's weak spot on Linux is hotkeys: it runs inside the game's Wine prefix,
+so a fullscreen game that grabs the keyboard swallows them, and under gamescope
+it is worse. Upstream removed its own workarounds in 3.2.0 for that reason.
+
+Native Linux scanners — scanmem, GameConqueror, PINCE — run outside the game
+entirely, driven by your compositor's real global shortcuts, so that problem
+does not arise. What they do not give you is Aurora's curated trainers; you
+find the values yourself.
+
+They complement each other rather than compete. See
+[docs/NATIVE-TOOLS.md](docs/NATIVE-TOOLS.md).
+
 ## Licence
 
 MIT for the packaging — see [LICENSE](LICENSE). The upstream payload in
