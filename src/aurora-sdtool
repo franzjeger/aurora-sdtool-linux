@@ -261,10 +261,6 @@ check_display() {
 # the payload into the user's data directory makes system packages behave.
 # ---------------------------------------------------------------------------
 
-dir_is_writable() {
-	[[ -d $1 && -w $1 ]]
-}
-
 sync_runtime_dir() {
 	local payload=$1 file src dst
 
@@ -361,13 +357,45 @@ find_compat_tool() {
 	return 1
 }
 
-# The value of the manifest's commandline key, e.g. "/AuroraLauncher %verb%".
-manifest_commandline() {
-	sed -n 's/.*"commandline"[[:space:]]*"\([^"]*\)".*/\1/p' "$1/$MANIFEST" 2>/dev/null | head -1
+# Every commandline value in the manifest, one per line.
+#
+# Upstream ships two — "commandline" and "commandline_waitforexitandrun" — and
+# Steam chooses between them by verb. Games normally take the
+# waitforexitandrun path, so wrapping only the first entry would leave the case
+# that actually matters going straight to the launcher.
+manifest_commandlines() {
+	sed -n 's/.*"commandline[^"]*"[[:space:]]*"\([^"]*\)".*/\1/p' "$1/$MANIFEST" 2>/dev/null
 }
 
+# True only when every entry goes through the shim; a partial wrap is a bug,
+# not a state to accept.
 compat_tool_is_wrapped() {
-	[[ -f $1/$SHIM ]] && [[ $(manifest_commandline "$1") == */$SHIM* ]]
+	local value values
+	[[ -f $1/$SHIM ]] || return 1
+	values=$(manifest_commandlines "$1")
+	[[ -n $values ]] || return 1
+	while read -r value; do
+		[[ $value == "/$SHIM" || $value == "/$SHIM "* ]] || return 1
+	done <<<"$values"
+	return 0
+}
+
+# Upstream 3.2.0 hard-crashes when the Games tab is opened before the
+# compatibility tool's Configs directory exists: ConfigureGameConfigVM calls
+# Directory.GetFiles on it without checking, and the exception is unhandled.
+#
+#   System.IO.DirectoryNotFoundException: Could not find a part of the path
+#   '.../compatibilitytools.d/AuroraLauncher/Configs'
+#
+# Creating the directory costs nothing and removes the crash entirely.
+ensure_compat_config_dir() {
+	local tool
+	tool=$(find_compat_tool) || return 0
+	[[ -d $tool/Configs ]] && return 0
+	if mkdir -p "$tool/Configs" 2>/dev/null; then
+		audit "created missing $tool/Configs (upstream crashes on the Games tab without it)"
+	fi
+	return 0
 }
 
 wrap_compat_tool() {
@@ -397,15 +425,17 @@ wrap_compat_tool() {
 		return 0
 	fi
 
-	current=$(manifest_commandline "$tool")
-	[[ -n $current ]] || die \
-"Could not read a \"commandline\" entry from $tool/$MANIFEST.
+	local -a values
+	mapfile -t values < <(manifest_commandlines "$tool")
+	(( ${#values[@]} )) || die \
+"Could not read any \"commandline\" entry from $tool/$MANIFEST.
 
   Refusing to edit a manifest in a format this does not recognise. Please
   report this, and include the file."
 
-	# "/AuroraLauncher %verb%" -> target "AuroraLauncher", so any extra
-	# arguments upstream passes are carried over untouched.
+	# "/AuroraLauncher waitforexitandrun" -> target "AuroraLauncher". Only the
+	# program is rewritten, so each entry keeps its own verb and arguments.
+	current=${values[0]}
 	target=${current#/}
 	target=${target%% *}
 	[[ -n $target && -f $tool/$target ]] || die \
@@ -413,7 +443,26 @@ wrap_compat_tool() {
 
   Refusing to wrap something that does not look like the Aurora launcher."
 
-	new_cmdline="/$SHIM${current#/"$target"}"
+	# The target goes into a sed pattern below.
+	[[ $target =~ ^[A-Za-z0-9._-]+$ ]] || die \
+"$MANIFEST points at '$target', which contains characters this cannot safely
+  rewrite. Please report this."
+
+	# Every entry must invoke the same program, or a blanket rewrite would be
+	# doing something other than what it looks like.
+	for new_cmdline in "${values[@]}"; do
+		[[ $new_cmdline == "/$target" || $new_cmdline == "/$target "* ]] || die \
+"$MANIFEST mixes targets — '$new_cmdline' is not '/$target'.
+
+  Refusing to rewrite a manifest this does not fully understand."
+	done
+
+	step "found ${#values[@]} command line(s) to wrap"
+
+	if [[ ! -d $tool/Configs ]]; then
+		step "creating Configs/ (upstream crashes on the Games tab without it)"
+		ensure_compat_config_dir
+	fi
 
 	step "backing up $MANIFEST"
 	cp -f "$tool/$MANIFEST" "$tool/$MANIFEST.aurora-sdtool.bak" ||
@@ -428,12 +477,13 @@ wrap_compat_tool() {
 # Delete this directory's $SHIM and restore $MANIFEST.aurora-sdtool.bak
 # to undo by hand, or run: $PROG --unwrap-compat-tool
 TARGET=$target
-ORIGINAL_COMMANDLINE='$current'
 WRAPPED_BY_VERSION=$WRAPPER_VERSION
 EOF
 
-	step "pointing $MANIFEST at $SHIM"
-	sed -i "s|\"commandline\"[[:space:]]*\"[^\"]*\"|\"commandline\" \"$new_cmdline\"|" \
+	step "pointing every command line in $MANIFEST at $SHIM"
+	# Rewrite only the program in each commandline entry, leaving its verb and
+	# any arguments exactly as upstream wrote them.
+	sed -i "s|\(\"commandline[^\"]*\"[[:space:]]*\"\)/$target|\1/$SHIM|g" \
 		"$tool/$MANIFEST" || die "Cannot rewrite $tool/$MANIFEST."
 
 	compat_tool_is_wrapped "$tool" || {
@@ -443,12 +493,14 @@ EOF
 		die "Rewriting $MANIFEST did not take effect. Rolled back, nothing changed."
 	}
 
-	audit "wrapped compatibility tool at $tool ($current -> $new_cmdline)"
+	audit "wrapped compatibility tool at $tool (${#values[@]} command lines, target $target)"
 
 	log ""
 	info "Wrapped."
 	log ""
-	log "  $current  ->  $new_cmdline"
+	while read -r new_cmdline; do
+		log "  $new_cmdline"
+	done < <(manifest_commandlines "$tool")
 	log ""
 	log "  Restart Steam for it to re-read the tool manifest."
 	log "  Game launches now log to $STATE_DIR/compat-tool.log"
@@ -475,18 +527,18 @@ unwrap_compat_tool() {
 		mv -f "$tool/$MANIFEST.aurora-sdtool.bak" "$tool/$MANIFEST" ||
 			die "Cannot restore $tool/$MANIFEST."
 	else
-		# No backup, so rebuild the entry from what the sidecar recorded.
-		local original=
+		# No backup — undo the rewrite instead, using the target the sidecar
+		# recorded. This is the exact inverse of what wrapping did.
 		# shellcheck source=/dev/null
 		[[ -r $tool/$WRAP_CONF ]] && source "$tool/$WRAP_CONF"
-		original=${ORIGINAL_COMMANDLINE:-}
-		[[ -n $original ]] || die \
-"No backup and no recorded command line — cannot undo safely.
+		local original_target=${TARGET:-}
+		[[ -n $original_target && $original_target =~ ^[A-Za-z0-9._-]+$ ]] || die \
+"No backup and no recorded target — cannot undo safely.
 
-  Edit $tool/$MANIFEST by hand: point \"commandline\" back at the launcher,
-  usually \"/AuroraLauncher %verb%\", then delete $tool/$SHIM."
-		step "restoring the command line from $WRAP_CONF"
-		sed -i "s|\"commandline\"[[:space:]]*\"[^\"]*\"|\"commandline\" \"$original\"|" \
+  Edit $tool/$MANIFEST by hand: point every \"commandline\" entry back at the
+  launcher, usually \"/AuroraLauncher <verb>\", then delete $tool/$SHIM."
+		step "reversing the rewrite using target $original_target"
+		sed -i "s|\(\"commandline[^\"]*\"[[:space:]]*\"\)/$SHIM|\1/$original_target|g" \
 			"$tool/$MANIFEST" || die "Cannot rewrite $tool/$MANIFEST."
 	fi
 
@@ -599,12 +651,9 @@ run_doctor() {
 			note "Fix with: chmod +x $payload/AuroraLauncher"
 			problems=$(( problems + 1 ))
 		fi
-		if dir_is_writable "$payload"; then
-			ok_mark "payload directory is writable — Aurora runs in place"
-		else
-			ok_mark "payload directory is read-only — mirrored to $RUNTIME_APP_DIR"
-			note "This is normal and expected for a system-wide install."
-		fi
+		ok_mark "runs from $RUNTIME_APP_DIR"
+		note "The prefix is kept as pristine source: upstream's installer deletes"
+		note "the launcher it started from, so it is mirrored before every launch."
 	else
 		bad_mark "payload not found"
 		note "Reinstall, or point AURORA_SDTOOL_LIBDIR at the directory holding"
@@ -771,9 +820,17 @@ main() {
 		audit "enabled invariant globalization (no ICU present)"
 	fi
 
-	# Run in place when we can write there, otherwise mirror to the user's
-	# data directory so Aurora keeps its settings across restarts.
-	if [[ ${AURORA_SDTOOL_NO_SYNC:-0} == 1 ]] || dir_is_writable "$payload"; then
+	# Always run from the per-user copy, never from the install prefix.
+	#
+	# Upstream's installer relocates itself: it copies the launcher and both
+	# native libraries into Steam's compatibilitytools.d and DELETES the
+	# originals. Pointed at an install prefix that is writable, it eats the
+	# package — observed on 3.2.0, which left ~/.local/lib/aurora-sdtool
+	# holding nothing but the files this project put there.
+	#
+	# Treating the prefix as read-only source and mirroring before every launch
+	# makes that self-healing: the next start copies the payload back.
+	if [[ ${AURORA_SDTOOL_NO_SYNC:-0} == 1 ]]; then
 		rundir=$payload
 	else
 		rundir=$(sync_runtime_dir "$payload")
@@ -784,6 +841,7 @@ main() {
 		die "$rundir/AuroraLauncher is not executable and its permissions cannot be changed."
 
 	mkdir -p "$CONFIG_DIR" "$STATE_DIR" 2>/dev/null || true
+	ensure_compat_config_dir
 
 	# The launcher resolves libSkiaSharp/libHarfBuzzSharp next to its own
 	# executable; setting the search path as well keeps unusual layouts working.

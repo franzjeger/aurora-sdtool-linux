@@ -411,11 +411,13 @@ EOF
 	: >"$tool/libSkiaSharp.so"
 	: >"$tool/libHarfBuzzSharp.so"
 
+	# Upstream's real format, as shipped by 3.2.0: two entries, and Steam
+	# selects between them by verb. Games take the waitforexitandrun path.
 	cat >"$tool/toolmanifest.vdf" <<'EOF'
 "manifest"
 {
-  "version" "2"
-  "commandline" "/AuroraLauncher %verb%"
+  "commandline" "/AuroraLauncher run"
+  "commandline_waitforexitandrun" "/AuroraLauncher waitforexitandrun"
 }
 EOF
 	printf '%s\n' "$tool"
@@ -473,8 +475,16 @@ test_compat_wrap() {
 	cp "$tool/toolmanifest.vdf" "$SANDBOX/manifest.orig"
 
 	run_wrapper --wrap-compat-tool
-	assert_contains "$(<"$tool/toolmanifest.vdf")" '"/aurora-compat-launch %verb%"' \
-		"wrapping repoints the manifest at the shim"
+	local wrapped
+	wrapped=$(<"$tool/toolmanifest.vdf")
+	assert_contains "$wrapped" '"/aurora-compat-launch run"' \
+		"wrapping repoints the run entry at the shim"
+	# The entry games actually take. Wrapping only the first would leave the
+	# case that matters going straight to the launcher.
+	assert_contains "$wrapped" '"/aurora-compat-launch waitforexitandrun"' \
+		"wrapping repoints the waitforexitandrun entry at the shim"
+	assert_not_contains "$wrapped" '"/AuroraLauncher' \
+		"no command line still points at the launcher directly"
 	if [[ -x $tool/aurora-compat-launch ]]; then
 		ok "wrapping installs the shim executable"
 	else
@@ -494,8 +504,8 @@ test_compat_wrap() {
 	# Wrapping twice must not stack shims or lose the original command line.
 	run_wrapper --wrap-compat-tool
 	assert_contains "$OUTPUT" "already wrapped" "wrapping twice is a no-op"
-	assert_contains "$(<"$tool/aurora-sdtool-wrap.conf")" "'/AuroraLauncher %verb%'" \
-		"the recorded original survives a second wrap"
+	assert_contains "$(<"$tool/aurora-sdtool-wrap.conf")" "TARGET=AuroraLauncher" \
+		"the recorded target survives a second wrap"
 
 	# An Aurora self-update rewrites the manifest and orphans the shim.
 	cp "$SANDBOX/manifest.orig" "$tool/toolmanifest.vdf"
@@ -525,6 +535,34 @@ test_compat_wrap() {
 		ok "a refused manifest is left untouched"
 	else
 		no "a refused manifest is left untouched"
+	fi
+
+	teardown
+}
+
+test_runtime_mirror() {
+	test_case "runtime mirroring" || return 0
+	setup
+	WRAPPER_ENV=(AURORA_SDTOOL_LIBDIR="$SANDBOX/payload")
+
+	local rundir=$SANDBOX/home/.local/share/aurora-sdtool/app
+
+	assert_eq "$(in_wrapper "sync_runtime_dir '$SANDBOX/payload' >/dev/null 2>&1; echo done")" done \
+		"mirroring completes"
+	if [[ -x $rundir/AuroraLauncher && -f $rundir/libSkiaSharp.so && -f $rundir/libHarfBuzzSharp.so ]]; then
+		ok "the payload is mirrored into the runtime directory"
+	else
+		no "the payload is mirrored into the runtime directory"
+	fi
+
+	# Upstream's installer deletes the launcher it ran from, so the next start
+	# has to put it back rather than fail.
+	rm -f "$rundir/AuroraLauncher" "$rundir/libSkiaSharp.so"
+	in_wrapper "sync_runtime_dir '$SANDBOX/payload' >/dev/null" >/dev/null
+	if [[ -x $rundir/AuroraLauncher && -f $rundir/libSkiaSharp.so ]]; then
+		ok "a payload deleted by Aurora is restored on the next launch"
+	else
+		no "a payload deleted by Aurora is restored on the next launch"
 	fi
 
 	teardown
@@ -573,6 +611,7 @@ main() {
 	test_install_hints
 	test_compat_shim
 	test_compat_wrap
+	test_runtime_mirror
 	test_required_libs_in_sync
 	test_install_uninstall
 
