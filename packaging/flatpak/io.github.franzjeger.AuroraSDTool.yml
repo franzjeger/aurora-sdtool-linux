@@ -19,6 +19,20 @@ runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
 command: aurora-sdtool
 
+# Flatpak refuses to export anything not named after the app ID, so without
+# these the bundle installs with no menu entry and no icon at all. These are
+# top-level properties; set on a module they are silently ignored with only a
+# warning. flatpak-builder rewrites the desktop file's Icon= key to match.
+rename-desktop-file: aurora-sdtool.desktop
+rename-icon: aurora-sdtool
+
+# Applies to every module. Set per-module it does not stop the global debuginfo
+# pass, which strips the vendored Skia and HarfBuzz libraries and leaves the
+# payload no longer matching SHA256SUMS.
+build-options:
+  strip: false
+  no-debuginfo: true
+
 finish-args:
   # Avalonia renders through X11 only, so no Wayland socket is requested.
   - --socket=x11
@@ -33,7 +47,10 @@ finish-args:
   - --filesystem=~/.steam
   - --filesystem=~/.local/share/Steam
   - --filesystem=~/.var/app/com.valvesoftware.Steam/data/Steam
-  - --filesystem=/usr/share/steam:ro
+  # No /usr/share/steam: Flatpak reserves /usr for the runtime and refuses the
+  # override with a warning on every launch. Distro-packaged Proton runners
+  # living there are therefore invisible inside the sandbox — one more reason
+  # to prefer a native package if you rely on them.
 
   # Where Aurora itself gets installed, and where games usually live.
   - --filesystem=~/Games:create
@@ -44,16 +61,12 @@ finish-args:
 modules:
   - name: aurora-sdtool
     buildsystem: simple
+
     build-commands:
       - bash ./scripts/install.sh --prefix /app --destdir /
     sources:
       - type: dir
         path: ../..
-
-    # The payload is a prebuilt binary: nothing to strip, no debuginfo to split.
-    build-options:
-      strip: false
-      no-debuginfo: true
 
   # Aurora's Avalonia UI falls back to boxes without a font on the host-less
   # sandbox, so ship one.

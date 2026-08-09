@@ -16,7 +16,7 @@
 # exec. A bug here should cost a log line, not the game.
 #
 # It is deliberately standalone — it lives in Steam's directory, where nothing
-# else from this project is present. REQUIRED_LIBS is kept in step with
+# else from this project is present. DLOPEN_LIBS is kept in step with
 # src/aurora-sdtool by a test.
 
 set -u
@@ -53,15 +53,10 @@ rotate_log() {
 # they only ever produce log lines.
 # ---------------------------------------------------------------------------
 
-REQUIRED_LIBS=(
-	libfontconfig.so.1
-	libfreetype.so.6
-	libexpat.so.1
-	libz.so.1
-	libbz2.so.1.0
-	libpng16.so.16
-	libbrotlidec.so.1
-	libbrotlicommon.so.1
+# Libraries the payload pulls in via dlopen, which no amount of inspecting the
+# ELF headers will reveal — Avalonia opens the X11 stack at runtime, and the
+# NativeAOT runtime opens the C++ ones. These have stable sonames everywhere.
+DLOPEN_LIBS=(
 	libX11.so.6
 	libxcb.so.1
 	libXau.so.6
@@ -128,9 +123,17 @@ fi
 # Logged, never enforced. A missing library means the launcher is about to die
 # on its own; this is what makes the reason findable afterwards.
 missing=
-for lib in "${REQUIRED_LIBS[@]}"; do
+for lib in "${DLOPEN_LIBS[@]}"; do
 	have_lib "$lib" || missing="$missing $lib"
 done
+# And whatever the linker itself cannot resolve for the payload, which covers
+# the transitive dependencies whose sonames differ between distributions.
+if command -v ldd >/dev/null 2>&1; then
+	for lib in $(ldd "$SELF_DIR/libSkiaSharp.so" "$SELF_DIR/libHarfBuzzSharp.so" 2>/dev/null |
+		awk '/=> not found/ {print $1}' | sort -u); do
+		missing="$missing $lib"
+	done
+fi
 if [[ -n $missing ]]; then
 	log "WARNING: missing shared libraries —$missing"
 	log "WARNING: Aurora will probably fail to start. Run 'aurora-sdtool --doctor'."

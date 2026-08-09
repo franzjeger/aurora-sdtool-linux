@@ -668,9 +668,9 @@ test_required_libs_in_sync() {
 	# where nothing else from this project exists. Drift would mean the two
 	# entry points disagree about what Aurora needs.
 	local from_launcher from_shim
-	from_launcher=$(sed -n '/^readonly REQUIRED_LIBS=(/,/^)/p' "$REPO_ROOT/src/aurora-sdtool" |
+	from_launcher=$(sed -n "/^readonly DLOPEN_LIBS=(/,/^)/p" "$REPO_ROOT/src/aurora-sdtool" |
 		grep -oE 'lib[A-Za-z0-9_.+-]*\.so[0-9.]*' | sort)
-	from_shim=$(sed -n '/^REQUIRED_LIBS=(/,/^)/p' "$REPO_ROOT/src/aurora-compat-launch" |
+	from_shim=$(sed -n '/^DLOPEN_LIBS=(/,/^)/p' "$REPO_ROOT/src/aurora-compat-launch" |
 		grep -oE 'lib[A-Za-z0-9_.+-]*\.so[0-9.]*' | sort)
 
 	if [[ -n $from_launcher && $from_launcher == "$from_shim" ]]; then

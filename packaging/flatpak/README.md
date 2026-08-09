@@ -29,11 +29,22 @@ Use `make arch`, `make deb` or `make rpm`.
 
 ## Status
 
-Unlike the Arch, Debian, RPM and AppImage packaging, **this manifest has not
-been built**. It is valid YAML, the application ID matches, and the DejaVu
-checksum is verified against the real archive — but nobody has run
-`flatpak-builder` against it end to end, because that pulls the ~1 GB
-freedesktop 24.08 runtime. Treat it as untested and report what breaks.
+Built and installed against the freedesktop 24.08 runtime, and verified from
+inside the sandbox: `--doctor` reports no problems, the payload matches its
+checksums, and the menu entry and icon export correctly.
+
+One limitation is structural rather than a bug. Flatpak reserves `/usr` for the
+runtime and refuses a `--filesystem=/usr/share/steam` override, so
+distro-packaged Proton runners installed there — `proton-cachyos` and the like
+— are invisible inside the sandbox. If you rely on those, use a native package.
+
+Note also that `--state-dir` must be on the same filesystem as the build
+directory; flatpak-builder refuses to start otherwise, which bites if the
+checkout is on a network mount or a synced folder:
+
+```bash
+flatpak-builder --state-dir=/tmp/fp-state /tmp/fp-build packaging/flatpak/io.github.franzjeger.AuroraSDTool.yml
+```
 
 ## Building
 

@@ -122,15 +122,10 @@ find_payload_dir() {
 # something a user can act on.
 # ---------------------------------------------------------------------------
 
-readonly REQUIRED_LIBS=(
-	libfontconfig.so.1
-	libfreetype.so.6
-	libexpat.so.1
-	libz.so.1
-	libbz2.so.1.0
-	libpng16.so.16
-	libbrotlidec.so.1
-	libbrotlicommon.so.1
+# Libraries the payload pulls in via dlopen, which no amount of inspecting the
+# ELF headers will reveal — Avalonia opens the X11 stack at runtime, and the
+# NativeAOT runtime opens the C++ ones. These have stable sonames everywhere.
+readonly DLOPEN_LIBS=(
 	libX11.so.6
 	libxcb.so.1
 	libXau.so.6
@@ -173,11 +168,25 @@ have_lib() {
 	return 1
 }
 
+# What the dynamic linker itself cannot resolve. Asking it beats extending a
+# hardcoded list: libSkiaSharp's transitive dependencies — freetype, expat,
+# zlib, bzip2, libpng, brotli — carry different sonames on different systems.
+# The Flatpak runtime ships libbz2.so.1 where Arch and Debian ship
+# libbz2.so.1.0, which a fixed list reports as missing when it is not.
+unresolved_payload_libs() {
+	local payload=$1
+	command -v ldd >/dev/null 2>&1 || return 0
+	ldd "$payload/libSkiaSharp.so" "$payload/libHarfBuzzSharp.so" 2>/dev/null |
+		awk '/=> not found/ {print $1}' | sort -u
+}
+
 missing_libs() {
-	local soname
-	for soname in "${REQUIRED_LIBS[@]}"; do
+	local payload=${1:-} soname
+	for soname in "${DLOPEN_LIBS[@]}"; do
 		have_lib "$soname" || printf '%s\n' "$soname"
 	done
+	[[ -n $payload ]] && unresolved_payload_libs "$payload"
+	return 0
 }
 
 # Map missing sonames to package names for the distro we are actually on,
@@ -749,9 +758,9 @@ run_doctor() {
 	printf '\n'
 
 	printf '%sLibraries%s\n' "$C_BOLD" "$C_OFF"
-	missing=$(missing_libs)
+	missing=$(missing_libs "${payload:-}")
 	if [[ -z $missing ]]; then
-		ok_mark "all ${#REQUIRED_LIBS[@]} required libraries present"
+		ok_mark "every library the payload needs resolves"
 	else
 		while read -r dir; do
 			bad_mark "missing $dir"
@@ -823,6 +832,7 @@ run_doctor() {
 		"$XDG_DATA_HOME/applications"
 		/usr/share/applications
 		/usr/local/share/applications
+		/app/share/applications
 	)
 	# Also look in the prefix the payload was installed into, so a custom
 	# --prefix is not reported as missing its own desktop entry.
@@ -833,8 +843,19 @@ run_doctor() {
 	# same directory, so report canonical paths once each.
 	local canonical
 	local -A seen_desktop=()
+	# Flatpak renames the entry to the application ID when exporting it, so the
+	# file inside the sandbox is not called aurora-sdtool.desktop at all.
+	local desktop_names=("$PROG.desktop") fpid name
+	if [[ -f /.flatpak-info ]]; then
+		fpid=$(awk -F= '/^name=/ {print $2; exit}' /.flatpak-info 2>/dev/null) || fpid=
+		[[ -n $fpid ]] && desktop_names+=("$fpid.desktop")
+	fi
+
 	for dir in "${desktop_dirs[@]}"; do
-		[[ -f $dir/$PROG.desktop ]] || continue
+		for name in "${desktop_names[@]}"; do
+			[[ -f $dir/$name ]] && break
+		done
+		[[ -f $dir/$name ]] || continue
 		canonical=$(cd "$dir" && pwd)
 		[[ -n ${seen_desktop[$canonical]:-} ]] && continue
 		seen_desktop[$canonical]=1
@@ -884,7 +905,7 @@ main() {
 
   Reinstall, or set AURORA_SDTOOL_LIBDIR to the directory holding them."
 
-	missing=$(missing_libs)
+	missing=$(missing_libs "$payload")
 	if [[ -n $missing ]]; then
 		err "Aurora cannot start — required system libraries are missing:"
 		log ""

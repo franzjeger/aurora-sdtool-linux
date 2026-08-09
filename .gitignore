@@ -17,6 +17,7 @@
 
 # Flatpak
 /packaging/flatpak/.flatpak-builder/
+/.flatpak-builder/
 /packaging/flatpak/build/
 /packaging/flatpak/repo/
 
