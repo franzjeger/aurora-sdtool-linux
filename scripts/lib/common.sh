@@ -10,8 +10,9 @@ readonly REPO_ROOT
 APP=aurora-sdtool
 readonly APP
 
-# Reverse-DNS component ID used by AppStream and Flatpak. It belongs to the
-# packager, not to CheatHappens — change it if you publish under another domain.
+# Reverse-DNS component ID used by AppStream and Flatpak. Namespaced to the
+# repository hosting this packaging, not to CheatHappens — change it if you
+# fork this elsewhere.
 APPID=io.github.franzjeger.AuroraSDTool
 # shellcheck disable=SC2034  # read by the scripts that source this file
 readonly APPID

@@ -49,9 +49,10 @@ that what you supplied matches the build this packaging was tested against.
 unofficial packaging effort and is not affiliated with, endorsed by, or
 supported by either company.
 
-Because of that, the AppStream component ID and the Flatpak application ID use
-the packager's own domain (`io.github.franzjeger.AuroraSDTool`) rather than a CheatHappens
-domain. Change it to a domain you control before publishing.
+Because of that, the AppStream component ID and the Flatpak application ID are
+`io.github.franzjeger.AuroraSDTool` — the `io.github.` namespace reserved for
+projects hosted on GitHub — rather than anything belonging to CheatHappens.
+Change it if you fork this to a different home.
 
 ## Using the software
 

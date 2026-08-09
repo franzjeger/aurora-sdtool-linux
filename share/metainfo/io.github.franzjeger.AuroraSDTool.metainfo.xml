@@ -2,9 +2,9 @@
 <!--
   AppStream metadata for the Linux packaging of the Aurora Steam Deck Tool.
 
-  The component ID uses the packager's domain, not CheatHappens', because this
-  repository is a third-party packaging effort. Change it if you publish under
-  a different domain.
+  The component ID uses the io.github. namespace for the repository that hosts
+  this packaging, not anything belonging to CheatHappens, because this is a
+  third-party effort. Change it if you fork this elsewhere.
 -->
 <component type="desktop-application">
   <id>io.github.franzjeger.AuroraSDTool</id>
@@ -22,7 +22,6 @@
 
   <url type="homepage">https://www.cheathappens.com/</url>
   <url type="help">https://www.cheathappens.com/</url>
-  <url type="bugtracker">https://github.com/franzjeger/aurora-sdtool-linux/issues</url>
 
   <description>
     <p>
