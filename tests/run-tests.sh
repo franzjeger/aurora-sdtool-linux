@@ -660,6 +660,42 @@ test_doctor_integrity() {
 	teardown
 }
 
+test_handoff_to_installed_copy() {
+	test_case "hand-off to Aurora's own installation" || return 0
+	setup
+	WRAPPER_ENV=(AURORA_SDTOOL_LIBDIR="$SANDBOX/payload")
+
+	# With nothing installed, our own payload is what runs.
+	run_wrapper --where
+	assert_contains "$OUTPUT" "no Aurora installation yet" \
+		"without an installation, the packaged copy runs"
+
+	# Once Aurora's installer has produced a copy, that one owns the saved
+	# login and per-game settings, so it must take precedence.
+	local tool
+	tool=$(make_compat_tool)
+	run_wrapper --where
+	assert_contains "$OUTPUT" "$tool" "an installed copy is handed off to"
+	assert_contains "$OUTPUT" "Aurora's own installation" "and is labelled as such"
+
+	run_wrapper --doctor || true
+	assert_contains "$OUTPUT" "runs Aurora's own installation" "--doctor reports the hand-off"
+
+	WRAPPER_ENV=(AURORA_SDTOOL_LIBDIR="$SANDBOX/payload" AURORA_SDTOOL_NO_HANDOFF=1)
+	run_wrapper --where
+	assert_contains "$OUTPUT" "hand-off disabled" "AURORA_SDTOOL_NO_HANDOFF overrides it"
+	assert_not_contains "$OUTPUT" "runs:     $tool" "and the packaged copy runs instead"
+
+	# A directory holding only a manifest is not an installation.
+	WRAPPER_ENV=(AURORA_SDTOOL_LIBDIR="$SANDBOX/payload")
+	rm -f "$tool/libSkiaSharp.so"
+	run_wrapper --where
+	assert_contains "$OUTPUT" "no Aurora installation yet" \
+		"an incomplete installation is not handed off to"
+
+	teardown
+}
+
 test_required_libs_in_sync() {
 	test_case "library lists stay in sync" || return 0
 	setup
@@ -706,6 +742,7 @@ main() {
 	test_runtime_mirror
 	test_doctor_integrity
 	test_uninstall_unwraps
+	test_handoff_to_installed_copy
 	test_required_libs_in_sync
 	test_install_uninstall
 

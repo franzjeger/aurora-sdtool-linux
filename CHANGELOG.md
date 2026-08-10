@@ -69,6 +69,12 @@ First packaged release, built on upstream 3.2.0.
 
 ### Fixed
 
+- The desktop launcher ran this package's own copy of Aurora rather than the
+  one Aurora installed into `compatibilitytools.d`. Since Aurora keeps its
+  saved account and per-game settings beside its own installation, that meant a
+  second, stateless instance asking for a sign-in that was already saved. It
+  now hands over to the installed copy once one exists.
+
 - Opening Aurora's Games tab crashed 3.2.0 outright — `ConfigureGameConfigVM`
   enumerates a `Configs` directory upstream never creates, and the resulting
   `DirectoryNotFoundException` is unhandled. The directory is now created.

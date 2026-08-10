@@ -397,6 +397,16 @@ compat_tool_is_wrapped() {
 #   '.../compatibilitytools.d/AuroraLauncher/Configs'
 #
 # Creating the directory costs nothing and removes the crash entirely.
+# Aurora's own installation, once its installer has produced one. This is the
+# copy that owns the saved account, the per-game settings and Configs/ — the
+# desktop launcher should defer to it rather than run a stateless second copy.
+find_installed_copy() {
+	local tool
+	tool=$(find_compat_tool) || return 1
+	is_payload_dir "$tool" || return 1
+	printf '%s\n' "$tool"
+}
+
 ensure_compat_config_dir() {
 	local tool
 	tool=$(find_compat_tool) || return 0
@@ -676,6 +686,11 @@ Any other argument is passed through to the upstream launcher unchanged.
 ${C_BOLD}Environment:${C_OFF}
   AURORA_SDTOOL_LIBDIR    Override where the payload is looked up
   AURORA_SDTOOL_NO_SYNC=1 Never mirror the payload into ~/.local/share
+  AURORA_SDTOOL_NO_HANDOFF=1
+                          Run this package's own copy instead of the one
+                          Aurora installed into Steam's compatibilitytools.d.
+                          The installed copy owns your saved login and game
+                          settings, so it is what runs by default.
   DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
                           Force invariant globalization (set automatically
                           when no ICU library is present)
@@ -690,10 +705,17 @@ EOF
 }
 
 show_where() {
-	local payload
+	local payload installed
 	payload=$(find_payload_dir "$(resolve_self)") || payload='(not found)'
 	printf 'payload:  %s\n' "$payload"
 	printf 'runtime:  %s\n' "$RUNTIME_APP_DIR"
+	if [[ ${AURORA_SDTOOL_NO_HANDOFF:-0} == 1 ]]; then
+		printf 'runs:     %s  (hand-off disabled)\n' "$RUNTIME_APP_DIR"
+	elif installed=$(find_installed_copy); then
+		printf 'runs:     %s  (Aurora'"'"'s own installation)\n' "$installed"
+	else
+		printf 'runs:     %s  (no Aurora installation yet)\n' "$RUNTIME_APP_DIR"
+	fi
 	printf 'config:   %s\n' "$CONFIG_DIR"
 	printf 'state:    %s\n' "$STATE_DIR"
 }
@@ -746,9 +768,17 @@ run_doctor() {
 			warn_mark "no SHA256SUMS beside the payload — integrity not checked"
 		fi
 
-		ok_mark "runs from $RUNTIME_APP_DIR"
-		note "The prefix is kept as pristine source: upstream's installer deletes"
-		note "the launcher it started from, so it is mirrored before every launch."
+		local installed
+		if installed=$(find_installed_copy); then
+			ok_mark "runs Aurora's own installation at $installed"
+			note "That copy owns your saved login and per-game settings. This"
+			note "package's payload is the bootstrapper that installed it."
+		else
+			ok_mark "runs from $RUNTIME_APP_DIR"
+			note "Aurora is not installed yet; launching will install it. The"
+			note "prefix stays pristine because upstream's installer deletes the"
+			note "launcher it started from."
+		fi
 	else
 		bad_mark "payload not found"
 		note "Reinstall, or point AURORA_SDTOOL_LIBDIR at the directory holding"
@@ -890,7 +920,7 @@ main() {
 		--)        shift ;;
 	esac
 
-	local self_dir payload rundir missing
+	local self_dir payload rundir missing installed_copy
 	self_dir=$(resolve_self)
 
 	payload=$(find_payload_dir "$self_dir") || die \
@@ -927,6 +957,18 @@ main() {
 		audit "enabled invariant globalization (no ICU present)"
 	fi
 
+	# Aurora's installer copies itself into compatibilitytools.d and treats
+	# that as the real installation: the saved account, per-game settings and
+	# Configs/ all live beside it, and upstream's own desktop shortcut points
+	# there. Running our own copy instead gives a second instance with no
+	# state, which shows the sign-in screen even though the account is saved.
+	#
+	# So hand over to the installed copy once it exists. Ours is the
+	# bootstrapper that gets Aurora installed in the first place.
+	if [[ ${AURORA_SDTOOL_NO_HANDOFF:-0} != 1 ]] && installed_copy=$(find_installed_copy); then
+		rundir=$installed_copy
+		audit "handing off to Aurora's own installation at $rundir"
+
 	# Always run from the per-user copy, never from the install prefix.
 	#
 	# Upstream's installer relocates itself: it copies the launcher and both
@@ -937,7 +979,7 @@ main() {
 	#
 	# Treating the prefix as read-only source and mirroring before every launch
 	# makes that self-healing: the next start copies the payload back.
-	if [[ ${AURORA_SDTOOL_NO_SYNC:-0} == 1 ]]; then
+	elif [[ ${AURORA_SDTOOL_NO_SYNC:-0} == 1 ]]; then
 		rundir=$payload
 	else
 		rundir=$(sync_runtime_dir "$payload")

@@ -197,6 +197,21 @@ Files the wrapper owns at runtime:
 | `~/.local/share/aurora-sdtool/app` | Per-user payload copy, when the prefix is read-only |
 | `~/.local/state/aurora-sdtool/aurora-sdtool.log` | Wrapper log |
 
+### Which copy actually runs
+
+Aurora's installer copies itself into Steam's `compatibilitytools.d` and treats
+that as the real installation — your saved login, per-game settings and
+`Configs/` all live beside it, and upstream's own desktop shortcut points there.
+
+So `aurora-sdtool` hands over to that copy once it exists, and only runs the
+packaged payload before Aurora has installed itself. Everything this wrapper
+adds — library checks, display detection, the ICU fallback, restoring the
+compatibility tool wrap — happens first, either way. `--where` shows which copy
+will run; `AURORA_SDTOOL_NO_HANDOFF=1` forces the packaged one.
+
+Without the hand-off you get a second, stateless instance that shows the
+sign-in screen even though your account is saved.
+
 ### Undoing an install
 
 `scripts/uninstall.sh` removes this packaging. Aurora installs *itself*
