@@ -1,5 +1,9 @@
 # Aurora SD Tool for Linux
 
+## Project Status
+**Active Development** — This project is currently being maintained and updated.
+
+
 Linux packaging for the **Aurora Steam Deck Tool** by CheatHappens — the
 utility that installs the Aurora game trainer and registers it as a Steam Play
 compatibility tool, so games launched from Steam start with Aurora attached.
